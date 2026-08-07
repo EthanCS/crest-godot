@@ -5,14 +5,18 @@ extends Node3D
 ## UnderwaterRenderer full-screen effect.
 ##
 ## Each frame the camera height is checked against the water surface with
-## CrestCollision.sample_height. While underwater, a full-screen ColorRect on
-## a high CanvasLayer applies underwater.gdshader: Beer-Lambert fog towards
-## Crest's scatter colour, plus a darkened meniscus band at the waterline
-## when the camera is near the surface. The effect fades in/out over
-## FADE_TIME when crossing the surface.
+## CrestCollision.sample_height. While underwater, a full-screen quad with
+## underwater.gdshader (clip-space POSITION override, drawn last in the
+## transparent pass) applies Beer-Lambert fog towards Crest's scatter colour,
+## plus a darkened meniscus band at the waterline when the camera is near the
+## surface. The effect fades in/out over FADE_TIME when crossing the surface.
 ##
-## Simplifications vs Crest: no ocean mask/stencil buffer (the overlay is
-## full-screen whenever the camera is underwater), no underwater curtain
+## A full-screen quad is used instead of a canvas_item ColorRect because
+## canvas_item shaders cannot sample hint_depth_texture in Godot 4.6. The
+## node must live in the same viewport as the camera it tracks.
+##
+## Simplifications vs Crest: no ocean mask/stencil buffer (the overlay covers
+## the whole screen whenever the camera is underwater), no underwater curtain
 ## geometry, no caustics on submerged scene geometry, and the meniscus is an
 ## analytic band around the projected horizon instead of a 3-sample mask
 ## check along the horizon normal.
@@ -34,8 +38,7 @@ const BASE_DEPTH_FOG_DENSITY := Vector3(0.9, 0.3, 0.35)
 ## Camera to track. Defaults to the active camera of this node's viewport.
 @export var camera: Camera3D
 
-var _layer: CanvasLayer
-var _rect: ColorRect
+var _mesh_instance: MeshInstance3D
 var _material: ShaderMaterial
 var _fade := 0.0
 
@@ -51,23 +54,27 @@ func _ready() -> void:
 func _build_overlay() -> void:
 	_material = ShaderMaterial.new()
 	_material.shader = UNDERWATER_SHADER
+	# Draw after the ocean tiles (default priority 0) in the transparent pass.
+	_material.render_priority = 100
 
-	_rect = ColorRect.new()
-	_rect.name = "CrestUnderwaterRect"
-	_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_rect.material = _material
-	_rect.visible = false
+	var quad := QuadMesh.new()
+	quad.size = Vector2(2.0, 2.0) # clip space spans -1..1 (POSITION override)
 
-	_layer = CanvasLayer.new()
-	_layer.name = "CrestUnderwaterLayer"
-	_layer.layer = 128
-	_layer.add_child(_rect)
-	add_child(_layer)
+	_mesh_instance = MeshInstance3D.new()
+	_mesh_instance.name = "CrestUnderwaterQuad"
+	_mesh_instance.mesh = quad
+	_mesh_instance.material_override = _material
+	_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_mesh_instance.ignore_occlusion_culling = true
+	# The quad's real position is meaningless (clip-space override), so make
+	# sure it is never frustum culled.
+	_mesh_instance.extra_cull_margin = 16384.0
+	_mesh_instance.visible = false
+	add_child(_mesh_instance)
 
 
 func _process(delta: float) -> void:
-	if Engine.is_editor_hint() or _rect == null:
+	if Engine.is_editor_hint() or _mesh_instance == null:
 		return
 
 	var cam := camera
@@ -83,16 +90,14 @@ func _process(delta: float) -> void:
 			underwater = cam.global_position.y < water_height
 
 	_fade = move_toward(_fade, 1.0 if underwater else 0.0, delta / FADE_TIME)
-	_rect.visible = _fade > 0.001
-	if _rect.visible:
+	_mesh_instance.visible = _fade > 0.001
+	if _mesh_instance.visible:
 		_sync_shader(cam, water_height)
 
 
 func _sync_shader(cam: Camera3D, water_height: float) -> void:
 	_material.set_shader_parameter("effect_strength", _fade)
 	_material.set_shader_parameter("depth_fog_density", BASE_DEPTH_FOG_DENSITY * depth_fog_density_factor)
-	_material.set_shader_parameter("inv_projection_matrix", cam.get_camera_projection().inverse())
-	_material.set_shader_parameter("camera_basis", cam.global_transform.basis)
 
 	# Lighting: same values CrestOceanRenderer feeds the ocean material.
 	var light := _find_directional_light()
@@ -114,14 +119,12 @@ func _sync_shader(cam: Camera3D, water_height: float) -> void:
 			var forward := -cam.global_transform.basis.z
 			var flat := Vector3(forward.x, 0.0, forward.z)
 			# No horizon on screen when looking straight up/down.
-			if flat.length() > 0.01 and vp:
+			if flat.length() > 0.01:
 				# A far point in the horizontal forward direction projects to
 				# the waterline (valid while the camera is near the surface).
 				var p := cam.global_position + flat.normalized() * 1.0e5
 				if not cam.is_position_behind(p):
-					var vp_height := vp.get_visible_rect().size.y
-					if vp_height > 0.0:
-						waterline_y = cam.unproject_position(p).y / vp_height
+					waterline_y = cam.unproject_position(p).y
 	_material.set_shader_parameter("meniscus_strength", meniscus)
 	_material.set_shader_parameter("waterline_screen_y", waterline_y)
 

@@ -12,6 +12,75 @@ var _label: Label
 func _ready() -> void:
 	_label = $CanvasLayer/Label
 	_spawn_floaters()
+	_spawn_island()
+
+
+## Builds a small island (gaussian bump) with a matching depth cache so the
+## shoreline foam / shallow water colours show up.
+func _spawn_island() -> void:
+	var island_center := Vector2(55.0, 0.0)
+	var size := 90.0 # world side length of the island area
+	var res := 129
+	var img := Image.create(res, res, false, Image.FORMAT_RF)
+
+	var heights := []
+	heights.resize(res * res)
+	for j in res:
+		for i in res:
+			var p := Vector2((float(i) / (res - 1) - 0.5) * size, (float(j) / (res - 1) - 0.5) * size)
+			var d := p.length() / (size * 0.5)
+			# Gaussian island peak above water, sloping down to deep water.
+			var h := 6.0 * exp(-d * d * 3.0) - 1.2
+			heights[j * res + i] = h
+			img.set_pixel(i, j, Color(h, 0, 0))
+
+	# Terrain mesh matching the heightmap.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for j in res - 1:
+		for i in res - 1:
+			var x0 := (float(i) / (res - 1) - 0.5) * size
+			var z0 := (float(j) / (res - 1) - 0.5) * size
+			var x1 := (float(i + 1) / (res - 1) - 0.5) * size
+			var z1 := (float(j + 1) / (res - 1) - 0.5) * size
+			var h00: float = heights[j * res + i]
+			var h10: float = heights[j * res + i + 1]
+			var h01: float = heights[(j + 1) * res + i]
+			var h11: float = heights[(j + 1) * res + i + 1]
+			var v00 := Vector3(x0, h00, z0)
+			var v10 := Vector3(x1, h10, z0)
+			var v01 := Vector3(x0, h01, z1)
+			var v11 := Vector3(x1, h11, z1)
+			# Godot front-face order seen from above (+Y), same as the ocean
+			# patches: (0,0) -> (1,0) -> (0,1). The shading normal attribute
+			# is independent and points up.
+			var n := (v01 - v00).cross(v10 - v00).normalized()
+			st.set_normal(n)
+			st.add_vertex(v00)
+			st.set_normal(n)
+			st.add_vertex(v10)
+			st.set_normal(n)
+			st.add_vertex(v01)
+			st.set_normal(n)
+			st.add_vertex(v10)
+			st.set_normal(n)
+			st.add_vertex(v11)
+			st.set_normal(n)
+			st.add_vertex(v01)
+	var terrain := MeshInstance3D.new()
+	terrain.mesh = st.commit()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.55, 0.48, 0.35)
+	mat.roughness = 0.9
+	terrain.material_override = mat
+	terrain.position = Vector3(island_center.x, 0.0, island_center.y)
+	add_child(terrain)
+
+	var depth_cache := CrestOceanDepthCache.new()
+	depth_cache.heightmap_texture = ImageTexture.create_from_image(img)
+	depth_cache.cache_size = Vector2(size, size)
+	depth_cache.position = Vector3(island_center.x, 0.0, island_center.y)
+	add_child(depth_cache)
 
 
 func _spawn_floaters() -> void:
@@ -50,20 +119,25 @@ func _spawn_floaters() -> void:
 		body.add_child(shape)
 
 		var mi := MeshInstance3D.new()
-		var mesh: Mesh = box_mesh if is_box else sphere_mesh
-		mi.mesh = mesh
+		if is_box:
+			mi.mesh = box_mesh
+		else:
+			mi.mesh = sphere_mesh
 		mi.material_override = mats[i % mats.size()]
 		body.add_child(mi)
 
 		var floater := Node3D.new()
 		floater.set_script(FloaterScript)
 		floater.set("object_width", 1.4)
+		# Weaker wake response in the open-ocean demo (Crest default seas).
+		floater.set("raise_object", 0.8)
 		body.add_child(floater)
 
 		var wake := Node3D.new()
 		wake.set_script(WakeScript)
-		wake.set("radius", 0.8)
-		wake.set("foam_strength", 0.8)
+		wake.set("radius", 0.6)
+		wake.set("weight", 0.35)
+		wake.set("foam_strength", 0.3)
 		body.add_child(wake)
 
 

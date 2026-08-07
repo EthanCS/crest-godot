@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bin5s5ihx7xfh"
+path="res://.godot/imported/inject_anim_waves.glsl-f086be51ffec48741563b78e37f63b79.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/inject_anim_waves.glsl"
+dest_files=["res://.godot/imported/inject_anim_waves.glsl-f086be51ffec48741563b78e37f63b79.res"]
+
+[params]
+

@@ -9,6 +9,7 @@ var wave_buffer: RID
 
 var _combine: CrestRDCompute
 var _clear: CrestRDCompute
+var _inject: CrestRDCompute
 var _fallback_dyn_waves: RID
 
 
@@ -29,12 +30,14 @@ func init_mgr(p_resolution: int, p_layers: int) -> void:
 
 	_combine = CrestRDCompute.from_file(rd, "res://addons/crest/shaders/sim/shape_combine.glsl")
 	_clear = CrestRDCompute.from_file(rd, "res://addons/crest/shaders/sim/clear.glsl")
+	_inject = CrestRDCompute.from_file(rd, "res://addons/crest/shaders/sim/inject_anim_waves.glsl")
 
 
-## Runs the shape generators and the combine pass.
+## Runs the shape generators, the local bump inputs and the combine pass.
 ## shapes: array of generators with evaluate(wave_buffer, depth_mgr, lod_transform, scale, level, time, accumulate).
 ## cascade_buffer: storage buffer with the packed cascade params (current frame).
-func update(shapes: Array, depth_mgr: CrestLodDataMgr, dyn_waves_mgr: CrestLodDataMgr, lod_transform: CrestLodTransform, cascade_buffer: RID, ocean_scale: float, ocean_level: float, time: float, dyn_waves_settings: Resource) -> void:
+## inputs: local displacement bumps (CrestRegisterAnimWavesInput dictionaries).
+func update(shapes: Array, depth_mgr: CrestLodDataMgr, dyn_waves_mgr: CrestLodDataMgr, lod_transform: CrestLodTransform, cascade_buffer: RID, ocean_scale: float, ocean_level: float, time: float, dyn_waves_settings: Resource, inputs := []) -> void:
 	if wave_buffer.is_valid() == false or _combine == null:
 		return
 
@@ -49,6 +52,9 @@ func update(shapes: Array, depth_mgr: CrestLodDataMgr, dyn_waves_mgr: CrestLodDa
 		for shape in shapes:
 			shape.evaluate(wave_buffer, depth_mgr, lod_transform, ocean_scale, ocean_level, time, not first)
 			first = false
+
+	for input in inputs:
+		_dispatch_inject(cascade_buffer, input)
 
 	# Combine pass.
 	var dyn_enabled := dyn_waves_mgr != null
@@ -83,6 +89,29 @@ func update(shapes: Array, depth_mgr: CrestLodDataMgr, dyn_waves_mgr: CrestLodDa
 	CrestRDCompute.free_rid_deferred(rd, set_combine)
 
 
+func _dispatch_inject(cascade_buffer: RID, input: Dictionary) -> void:
+	if _inject == null:
+		return
+	var u_cascades := RDUniform.new()
+	u_cascades.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u_cascades.binding = 0
+	u_cascades.add_id(cascade_buffer)
+	var u_buffer := RDUniform.new()
+	u_buffer.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	u_buffer.binding = 1
+	u_buffer.add_id(wave_buffer)
+	var set := _inject.make_uniform_set([u_cascades, u_buffer])
+	var center: Vector2 = input["rect_center"]
+	var pc := PackedFloat32Array([
+		float(resolution), float(layer_count),
+		center.x, center.y,
+		input.get("radius", 3.0), input.get("amplitude", 1.0),
+		input.get("blend_mode", 0.0), 0.1,
+	])
+	_inject.dispatch(resolution / CrestConstants.THREAD_GROUP_SIZE, resolution / CrestConstants.THREAD_GROUP_SIZE, layer_count, {0: set}, CrestRDCompute.pack_push_constants(pc))
+	CrestRDCompute.free_rid_deferred(rd, set)
+
+
 func _make_fallback(p_format: RenderingDevice.DataFormat) -> RID:
 	var fmt := RDTextureFormat.new()
 	fmt.format = p_format
@@ -104,4 +133,6 @@ func free_rids() -> void:
 			_combine.free_rid()
 		if _clear:
 			_clear.free_rid()
+		if _inject:
+			_inject.free_rid()
 	super.free_rids()

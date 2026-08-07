@@ -61,17 +61,11 @@ func _on_spectrum_changed() -> void:
 	_spectrum_dirty = true
 
 
-var _debug_printed := false
-
-
 ## Shape generator interface used by CrestLodDataMgrAnimWaves.
 func evaluate(wave_buffer: RID, _depth_mgr: CrestLodDataMgr, lod_transform: CrestLodTransform, ocean_scale: float, _ocean_level: float, time: float, accumulate := false) -> void:
 	var rd := RenderingServer.get_rendering_device()
 	if rd == null:
 		return
-	if not _debug_printed:
-		_debug_printed = true
-		print("CrestShapeFFT: evaluate called, time=", time)
 	if spectrum == null:
 		spectrum = CrestWaveSpectrum.new()
 	if _reinit_needed or _fft == null:

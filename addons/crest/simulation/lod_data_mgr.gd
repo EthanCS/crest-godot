@@ -109,6 +109,9 @@ func make_image_uniform(binding: int, use_target := true) -> RDUniform:
 
 
 func free_rids() -> void:
+	# Detach from the material world before freeing so the renderer never
+	# touches a stale RID.
+	texture_array.texture_rd_rid = RID()
 	if rd:
 		for tex in _textures:
 			if tex.is_valid():

@@ -128,8 +128,6 @@ var _rd_ok := false
 
 
 func _enter_tree() -> void:
-	if Engine.is_editor_hint():
-		return
 	instance = self
 	ocean_level = global_position.y
 	if time_provider == null:
@@ -144,14 +142,12 @@ func _exit_tree() -> void:
 
 
 func _request_rebuild() -> void:
-	if not is_inside_tree() or Engine.is_editor_hint():
+	if not is_inside_tree():
 		return
 	_rebuild_queued = true
 
 
 func _ready() -> void:
-	if Engine.is_editor_hint():
-		return
 	_build_ocean()
 
 
@@ -259,8 +255,6 @@ func _destroy_ocean() -> void:
 
 
 func _process(delta: float) -> void:
-	if Engine.is_editor_hint():
-		return
 	if _rebuild_queued:
 		_rebuild_queued = false
 		if _built:
@@ -305,7 +299,8 @@ func _run_update(delta: float) -> void:
 			flow, depth, ocean_level, gravity, lod_change, _collect_sphere_interactions())
 	var shapes := _collect_shape_generators()
 	anim_waves.update(shapes, depth, dyn_waves, lod_transform, _cascade_current,
-		ocean_scale, ocean_level, time, sim_settings_wave if dyn_waves else null)
+		ocean_scale, ocean_level, time, sim_settings_wave if dyn_waves else null,
+		_collect_inputs(&"crest_anim_waves_input"))
 	if foam:
 		foam.update_sim(delta, lod_transform, _cascade_current, _cascade_source,
 			flow, anim_waves, depth, ocean_level, lod_change)
@@ -336,6 +331,10 @@ func current_time() -> float:
 func _get_viewer_position() -> Vector3:
 	if viewpoint:
 		return viewpoint.global_position
+	if Engine.is_editor_hint():
+		var editor_cam := EditorInterface.get_editor_viewport_3d(0).get_camera_3d()
+		if editor_cam:
+			return editor_cam.global_position
 	var cam := get_viewport().get_camera_3d()
 	if cam:
 		return cam.global_position

@@ -1,8 +1,10 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://addons/crest/core/ocean_renderer.gd" id="ocean"]
+[ext_resource type="Script" path="res://addons/crest/core/ocean_debug_gui.gd" id="dbggui"]
 [ext_resource type="Script" path="res://addons/crest/shapes/shape_gerstner.gd" id="gerstner"]
 [ext_resource type="Script" path="res://addons/crest/shapes/ocean_wave_spectrum.gd" id="spectrum"]
+[ext_resource type="Script" path="res://addons/crest/reflection/ocean_planar_reflection.gd" id="planar"]
 [ext_resource type="Script" path="res://demo/demo.gd" id="demo"]
 [ext_resource type="Script" path="res://demo/fly_camera.gd" id="flycam"]
 
@@ -40,7 +42,8 @@ light_energy = 1.2
 shadow_enabled = true
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.92388, 0.382683, 0, -0.382683, 0.92388, 0, 14, 42)
+position = Vector3(0, 15, 46)
+rotation = Vector3(-0.3, -0.35, 0)
 current = true
 far = 200000.0
 script = ExtResource("flycam")
@@ -51,6 +54,12 @@ script = ExtResource("ocean")
 [node name="CrestShapeGerstner" type="Node3D" parent="CrestOceanRenderer"]
 script = ExtResource("gerstner")
 spectrum = SubResource("spec")
+
+[node name="CrestOceanPlanarReflection" type="Node3D" parent="."]
+script = ExtResource("planar")
+
+[node name="CrestOceanDebugGui" type="Node3D" parent="."]
+script = ExtResource("dbggui")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 

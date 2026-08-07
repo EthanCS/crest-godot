@@ -45,14 +45,14 @@ func _physics_process(delta: float) -> void:
 		var out := [0.0]
 		if not CrestCollision.sample_height(xz, out):
 			continue
-		var submersion := out[0] - pos.y
+		var submersion: float = out[0] - pos.y
 		if submersion <= 0.0:
 			continue
 		_in_water = true
 
 		# Buoyancy proportional to submersion (per-probe share of the mass).
 		var probe_mass := _body.mass / maxf(get_child_count(), 1)
-		var force := Vector3.UP * gravity * submersion * force_multiplier * probe_mass
+		var force: Vector3 = Vector3.UP * gravity * submersion * force_multiplier * probe_mass
 
 		# Drag against motion relative to the water surface.
 		var point_vel := _body.linear_velocity + _body.angular_velocity.cross(pos - _body.global_position)
