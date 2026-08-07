@@ -13,6 +13,13 @@ func _ready() -> void:
 	_label = $CanvasLayer/Label
 	_spawn_floaters()
 	_spawn_island()
+	# Bright-sea material preset for the demo (plugin defaults stay Crest's).
+	var ocean := $CrestOceanRenderer as CrestOceanRenderer
+	await get_tree().process_frame
+	if ocean.ocean_material:
+		ocean.ocean_material.set_shader_parameter("diffuse", Vector3(0.0, 0.02, 0.30))
+		ocean.ocean_material.set_shader_parameter("diffuse_grazing", Vector3(0.0, 0.03, 0.36))
+		ocean.ocean_material.set_shader_parameter("subsurface_shallow_col", Vector3(0.0, 0.08, 0.55))
 	if "--showcase" in OS.get_cmdline_user_args():
 		_cruise = true
 		_label.visible = false
@@ -34,7 +41,7 @@ func _spawn_island() -> void:
 			# Island bump (above water) on top of a gently sloping seabed
 			# that reaches ~14 m depth at the borders.
 			var island_h := 6.0 * exp(-p.length_squared() / (2.0 * 14.0 * 14.0))
-			var depth := -1.5 - 12.5 * smoothstep(30.0, 200.0, p.length())
+			var depth := -1.5 - 5.5 * smoothstep(50.0, 240.0, p.length())
 			var h: float = max(island_h - 1.5, depth)
 			heights[j * res + i] = h
 			img.set_pixel(i, j, Color(h, 0, 0))

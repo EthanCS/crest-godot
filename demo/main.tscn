@@ -20,7 +20,7 @@ sky_material = SubResource("skymat")
 background_mode = 2
 sky = SubResource("sky")
 ambient_light_source = 2
-ambient_light_energy = 0.6
+ambient_light_energy = 1.0
 reflected_light_source = 2
 
 [sub_resource type="Resource" id="spec"]

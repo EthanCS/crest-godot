@@ -42,9 +42,9 @@ uniform float fresnel_power = 5.0;
 uniform float refractive_index_of_water = 1.333;
 uniform float directional_light_boost = 7.0;
 uniform float directional_light_falloff = 275.0;
-uniform vec3 sky_base = vec3(0.35, 0.54, 0.75);
-uniform vec3 sky_towards_sun = vec3(0.75, 0.78, 0.8);
-uniform vec3 sky_away_from_sun = vec3(0.28, 0.38, 0.55);
+uniform vec3 sky_base = vec3(0.5, 0.65, 0.85);
+uniform vec3 sky_towards_sun = vec3(0.85, 0.88, 0.9);
+uniform vec3 sky_away_from_sun = vec3(0.45, 0.6, 0.78);
 uniform float sky_directionality = 0.9;
 uniform sampler2D planar_reflection : filter_linear, repeat_disable;
 uniform float planar_reflection_intensity = 0.0;
@@ -221,10 +221,10 @@ void fragment() {
 	// -- Detail normal maps ----------------------------------------------------
 	float cascade0_scale = cascade_data_a[c0].z;
 	{
-		// Fade the detail normal map with distance and blur it into higher
-		// mips: tiling of the small-scale normal map otherwise reads as
-		// banding on calm water from above.
-		float normal_fade = clamp(1.0 - pixel_z / 200.0, 0.0, 1.0);
+		// Fade the detail normal map with distance (to a floor, not zero)
+		// and blur it into higher mips: tiling of the small-scale normal
+		// map otherwise reads as banding on calm water from above.
+		float normal_fade = clamp(1.0 - pixel_z / 400.0, 0.25, 1.0);
 		float mip_bias = log2(max(pixel_z, 1.0)) * 0.5;
 		vec2 v0 = vec2(0.94, 0.34);
 		vec2 v1 = vec2(-0.85, -0.53);
