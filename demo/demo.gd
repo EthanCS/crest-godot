@@ -148,8 +148,14 @@ func _make_mat(color: Color) -> StandardMaterial3D:
 	return m
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_U:
+		var cam := $Camera3D
+		cam.position.y = -3.0 if cam.position.y > 0.0 else 15.0
+
+
 func _process(_delta: float) -> void:
 	if _label:
 		var ocean := CrestOceanRenderer.instance
 		var fps := Engine.get_frames_per_second()
-		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f" % [fps, int(ocean.ocean_scale) if ocean else 0, ocean.current_time() if ocean else 0.0]
+		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | U: dive/surface | F9: debug overlay | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f" % [fps, int(ocean.ocean_scale) if ocean else 0, ocean.current_time() if ocean else 0.0]

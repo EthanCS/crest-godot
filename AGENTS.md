@@ -8,15 +8,16 @@ https://github.com/wave-harmonic/crest
 
 - `addons/crest/` — the plugin (everything ships here)
   - `core/` — ocean renderer (singleton), LOD mesh builder, lod transforms,
-    RD compute helper, time provider, water body
+    RD compute helper, time provider, water body, floating origin, debug GUI
   - `shapes/` — wave spectrum resource, Gerstner + FFT generators
+    (`fft_compute.gd` pipeline)
   - `simulation/` — per-sim managers (animated waves, foam, dynamic waves,
     sea floor depth, flow, shadow, clip surface, albedo) + `settings/`
     resources + `ocean_depth_cache.gd`
-  - `shaders/` — `ocean.gdshader` (surface), `sim/*.glsl` (compute),
-    `include/*.gdshaderinc` (spatial includes)
+  - `shaders/` — `ocean.gdshader` (surface), `underwater.gdshader`,
+    `sim/*.glsl` (compute), `include/*.gdshaderinc` (spatial includes)
   - `interaction/` — buoyancy + water interaction components
-  - `collision/` — wave height/normal query API
+  - `collision/` — wave height/normal query API (analytic Gerstner mirror)
   - `inputs/` — RegisterXxxInput nodes injected into sims
   - `underwater/`, `reflection/` — underwater post-process, planar reflections
 - `demo/` — demo scenes
@@ -46,6 +47,21 @@ https://github.com/wave-harmonic/crest
   resolved by `CrestRDCompute.from_file` (relative to the shader).
 - Cascade data layout (SSBO + shader uniform arrays): 2 vec4s per cascade,
   16 entries (`CASCADE_PARAMS_COUNT`); see `lod_transform.gd`.
+- **canvas_item shaders cannot use `hint_depth_texture`** (nor the
+  projection matrix builtins). Full-screen post effects must be spatial
+  full-screen quads with a clip-space `POSITION` override (see
+  `underwater.gdshader` + `underwater_renderer.gd`).
+- **Uniform defaults of runtime-created ShaderMaterials are unreliable**
+  (observed zeros for unset uniforms). Sync every uniform explicitly each
+  frame, like `ocean_renderer.gd::_sync_material_params` does.
+- Multiple `get_image()` calls on the same SubViewport texture can return
+  stale frames on some drivers — capture at most one screenshot per run.
+- Freezing `CrestTimeProvider` (`use_custom_time`) stops the GPU wave
+  update while the CPU collision mirror keeps evaluating the analytic
+  waves — the two views of the surface diverge.
+- `CrestWaveSpectrum` randomises component phases per run unless
+  `random_seed` is set — screenshots are not reproducible across runs by
+  default.
 
 ## Testing
 

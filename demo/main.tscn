@@ -1,10 +1,11 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://addons/crest/core/ocean_renderer.gd" id="ocean"]
 [ext_resource type="Script" path="res://addons/crest/core/ocean_debug_gui.gd" id="dbggui"]
 [ext_resource type="Script" path="res://addons/crest/shapes/shape_gerstner.gd" id="gerstner"]
 [ext_resource type="Script" path="res://addons/crest/shapes/ocean_wave_spectrum.gd" id="spectrum"]
 [ext_resource type="Script" path="res://addons/crest/reflection/ocean_planar_reflection.gd" id="planar"]
+[ext_resource type="Script" path="res://addons/crest/underwater/underwater_renderer.gd" id="underwater"]
 [ext_resource type="Script" path="res://demo/demo.gd" id="demo"]
 [ext_resource type="Script" path="res://demo/fly_camera.gd" id="flycam"]
 
@@ -60,6 +61,9 @@ script = ExtResource("planar")
 
 [node name="CrestOceanDebugGui" type="Node3D" parent="."]
 script = ExtResource("dbggui")
+
+[node name="CrestUnderwaterRenderer" type="Node3D" parent="."]
+script = ExtResource("underwater")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
