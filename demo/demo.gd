@@ -13,14 +13,17 @@ func _ready() -> void:
 	_label = $CanvasLayer/Label
 	_spawn_floaters()
 	_spawn_island()
+	if "--showcase" in OS.get_cmdline_user_args():
+		_cruise = true
+		_label.visible = false
 
 
-## Builds a small island (gaussian bump) with a matching depth cache so the
-## shoreline foam / shallow water colours show up.
+## Builds a shallow-water seabed with an island, with a matching depth
+## cache: refraction/caustics/shallow scattering need visible sea floor.
 func _spawn_island() -> void:
 	var island_center := Vector2(55.0, 0.0)
-	var size := 90.0 # world side length of the island area
-	var res := 129
+	var size := 420.0 # world side length of the seabed area
+	var res := 513
 	var img := Image.create(res, res, false, Image.FORMAT_RF)
 
 	var heights := []
@@ -28,9 +31,11 @@ func _spawn_island() -> void:
 	for j in res:
 		for i in res:
 			var p := Vector2((float(i) / (res - 1) - 0.5) * size, (float(j) / (res - 1) - 0.5) * size)
-			var d := p.length() / (size * 0.5)
-			# Gaussian island peak above water, sloping down to deep water.
-			var h := 6.0 * exp(-d * d * 3.0) - 1.2
+			# Island bump (above water) on top of a gently sloping seabed
+			# that reaches ~14 m depth at the borders.
+			var island_h := 6.0 * exp(-p.length_squared() / (2.0 * 14.0 * 14.0))
+			var depth := -1.5 - 12.5 * smoothstep(30.0, 200.0, p.length())
+			var h: float = max(island_h - 1.5, depth)
 			heights[j * res + i] = h
 			img.set_pixel(i, j, Color(h, 0, 0))
 
@@ -67,10 +72,13 @@ func _spawn_island() -> void:
 			st.add_vertex(v11)
 			st.set_normal(n)
 			st.add_vertex(v01)
+	st.generate_normals()
 	var terrain := MeshInstance3D.new()
 	terrain.mesh = st.commit()
+	# The seabed would show shadow-map banding through the refracted water.
+	terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.55, 0.48, 0.35)
+	mat.albedo_color = Color(0.76, 0.70, 0.50)
 	mat.roughness = 0.9
 	terrain.material_override = mat
 	terrain.position = Vector3(island_center.x, 0.0, island_center.y)
@@ -80,7 +88,8 @@ func _spawn_island() -> void:
 	depth_cache.heightmap_texture = ImageTexture.create_from_image(img)
 	depth_cache.cache_size = Vector2(size, size)
 	depth_cache.position = Vector3(island_center.x, 0.0, island_center.y)
-	add_child(depth_cache)
+	if not "--no-depth" in OS.get_cmdline_user_args():
+		add_child(depth_cache)
 
 
 func _spawn_floaters() -> void:
@@ -152,9 +161,55 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_U:
 		var cam := $Camera3D
 		cam.position.y = -3.0 if cam.position.y > 0.0 else 15.0
+	elif event is InputEventKey and event.pressed and event.keycode == KEY_C:
+		_cruise = not _cruise
 
 
-func _process(_delta: float) -> void:
+# -- Showcase cruise ----------------------------------------------------------
+# Camera path for the feature showcase video (press C to toggle).
+
+const CRUISE_POINTS := [
+	# [position, look_at, seconds] - open ocean, island, floaters, underwater,
+	# low-angle reflections, outro.
+	[Vector3(0, 20, 70), Vector3(0, 0, 0), 6.0],
+	[Vector3(28, 10, 28), Vector3(58, 1, 0), 6.0],
+	[Vector3(-4, 5, -18), Vector3(0, 0, 4), 6.0],
+	[Vector3(0, -2.5, 26), Vector3(0, 0, -10), 6.0],
+	[Vector3(6, 2.5, 10), Vector3(55, 2, 0), 6.0],
+	[Vector3(0, 22, 75), Vector3(0, 0, 0), 5.0],
+]
+
+var _cruise := false
+var _cruise_time := 0.0
+
+
+func _cruise_total() -> float:
+	var t := 0.0
+	for p in CRUISE_POINTS:
+		t += p[2]
+	return t
+
+
+func _update_cruise(delta: float) -> void:
+	_cruise_time += delta
+	var t := fmod(_cruise_time, _cruise_total())
+	var acc := 0.0
+	for i in CRUISE_POINTS.size():
+		var dur: float = CRUISE_POINTS[i][2]
+		if t < acc + dur:
+			var a: float = smoothstep(0.0, 1.0, (t - acc) / dur)
+			var nxt := (i + 1) % CRUISE_POINTS.size()
+			var cam := $Camera3D
+			cam.position = (CRUISE_POINTS[i][0] as Vector3).lerp(CRUISE_POINTS[nxt][0], a)
+			var look := (CRUISE_POINTS[i][1] as Vector3).lerp(CRUISE_POINTS[nxt][1], a)
+			cam.look_at(look, Vector3.UP)
+			return
+		acc += dur
+
+
+func _process(delta: float) -> void:
+	if _cruise:
+		_update_cruise(delta)
 	if _label:
 		var ocean := CrestOceanRenderer.instance
 		var fps := Engine.get_frames_per_second()

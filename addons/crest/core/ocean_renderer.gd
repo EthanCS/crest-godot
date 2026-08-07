@@ -543,6 +543,7 @@ func _sync_material_params(time: float) -> void:
 		var env := vp.world_3d.environment
 		var ambient := env.ambient_light_color * env.ambient_light_energy
 		if env.ambient_light_source == Environment.AMBIENT_SOURCE_SKY:
-			# Approximate sky ambient with a fixed horizon blend.
-			ambient *= 1.0
+			# SKY mode ignores ambient_light_color; approximate sky ambient
+			# with a horizon-ish blend (Crest samples the SH L0 term).
+			ambient = Color(0.5, 0.6, 0.7) * maxf(env.ambient_light_energy, 1.0)
 		ocean_material.set_shader_parameter("ambient_light", ambient)

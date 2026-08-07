@@ -25,13 +25,13 @@ uniform float normals_strength = 0.36;
 uniform sampler2D normals_texture : filter_linear_mipmap, repeat_enable;
 
 // -- Scattering --------------------------------------------------------------
-uniform vec3 diffuse : source_color = vec3(0.0, 0.0027, 0.170);
-uniform vec3 diffuse_grazing : source_color = vec3(0.0, 0.0039, 0.169);
-uniform vec3 diffuse_shadow : source_color = vec3(0.0, 0.0013, 0.085);
-uniform vec3 subsurface_shallow_col : source_color = vec3(0.0, 0.0039, 0.247);
+uniform vec3 diffuse = vec3(0.0, 0.0027, 0.170);
+uniform vec3 diffuse_grazing = vec3(0.0, 0.0039, 0.169);
+uniform vec3 diffuse_shadow = vec3(0.0, 0.0013, 0.085);
+uniform vec3 subsurface_shallow_col = vec3(0.0, 0.0039, 0.247);
 uniform float subsurface_depth_max = 10.0;
 uniform float subsurface_depth_power = 2.5;
-uniform vec3 subsurface_colour : source_color = vec3(0.0885, 0.497, 0.456);
+uniform vec3 subsurface_colour = vec3(0.0885, 0.497, 0.456);
 uniform float subsurface_base = 0.0;
 uniform float subsurface_sun = 1.7;
 uniform float subsurface_sun_falloff = 5.0;
@@ -42,9 +42,9 @@ uniform float fresnel_power = 5.0;
 uniform float refractive_index_of_water = 1.333;
 uniform float directional_light_boost = 7.0;
 uniform float directional_light_falloff = 275.0;
-uniform vec3 sky_base : source_color = vec3(0.35, 0.54, 0.75);
-uniform vec3 sky_towards_sun : source_color = vec3(0.75, 0.78, 0.8);
-uniform vec3 sky_away_from_sun : source_color = vec3(0.28, 0.38, 0.55);
+uniform vec3 sky_base = vec3(0.35, 0.54, 0.75);
+uniform vec3 sky_towards_sun = vec3(0.75, 0.78, 0.8);
+uniform vec3 sky_away_from_sun = vec3(0.28, 0.38, 0.55);
 uniform float sky_directionality = 0.9;
 uniform sampler2D planar_reflection : filter_linear, repeat_disable;
 uniform float planar_reflection_intensity = 0.0;
@@ -59,9 +59,9 @@ uniform float shoreline_foam_min_depth = 0.27;
 uniform float wave_foam_normal_strength = 3.5;
 uniform float wave_foam_specular_falloff = 293.0;
 uniform float wave_foam_specular_boost = 0.15;
-uniform vec3 foam_white_color : source_color = vec3(1.0, 1.0, 1.0);
+uniform vec3 foam_white_color = vec3(1.0, 1.0, 1.0);
 uniform float foam_white_alpha = 1.0;
-uniform vec3 foam_bubble_color : source_color = vec3(0.64, 0.83, 0.82);
+uniform vec3 foam_bubble_color = vec3(0.64, 0.83, 0.82);
 uniform float foam_bubble_parallax = 0.14;
 uniform float wave_foam_bubbles_coverage = 1.68;
 
@@ -221,14 +221,19 @@ void fragment() {
 	// -- Detail normal maps ----------------------------------------------------
 	float cascade0_scale = cascade_data_a[c0].z;
 	{
+		// Fade the detail normal map with distance and blur it into higher
+		// mips: tiling of the small-scale normal map otherwise reads as
+		// banding on calm water from above.
+		float normal_fade = clamp(1.0 - pixel_z / 200.0, 0.0, 1.0);
+		float mip_bias = log2(max(pixel_z, 1.0)) * 0.5;
 		vec2 v0 = vec2(0.94, 0.34);
 		vec2 v1 = vec2(-0.85, -0.53);
 		float nstretch = normals_scale * cascade0_scale / 100.0;
 		float spd = 1.875 * pow(log(1.0 + 2.0 * crest_texel_width(c0)), 1.4);
 		vec2 uv0 = (v0 * crest_time * spd + v_undisplaced_xz) / nstretch;
 		vec2 uv1 = (v1 * crest_time * spd + v_undisplaced_xz) / nstretch;
-		vec2 norm = texture(normals_texture, uv0).xy * 2.0 - 1.0
-			+ texture(normals_texture, uv1).xy * 2.0 - 1.0;
+		vec2 norm = textureLod(normals_texture, uv0, mip_bias).xy * 2.0 - 1.0
+			+ textureLod(normals_texture, uv1, mip_bias).xy * 2.0 - 1.0;
 		// Blend with the next-larger scale for distance continuity.
 		float nblend = v_lod_alpha;
 		if (nblend > 0.001) {
@@ -236,11 +241,11 @@ void fragment() {
 			float spd2 = 1.875 * pow(log(1.0 + 4.0 * crest_texel_width(c0)), 1.4);
 			vec2 uvb0 = (v0 * crest_time * spd2 + v_undisplaced_xz) / nstretch2;
 			vec2 uvb1 = (v1 * crest_time * spd2 + v_undisplaced_xz) / nstretch2;
-			vec2 norm2 = texture(normals_texture, uvb0).xy * 2.0 - 1.0
-				+ texture(normals_texture, uvb1).xy * 2.0 - 1.0;
+			vec2 norm2 = textureLod(normals_texture, uvb0, mip_bias).xy * 2.0 - 1.0
+				+ textureLod(normals_texture, uvb1, mip_bias).xy * 2.0 - 1.0;
 			norm = mix(norm, norm2, nblend);
 		}
-		n_pixel.xz += normals_strength * norm;
+		n_pixel.xz += normals_strength * normal_fade * norm;
 	}
 	n_pixel.xz *= normals_strength_overall;
 	n_pixel = normalize(n_pixel);
