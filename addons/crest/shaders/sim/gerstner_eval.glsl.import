@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cw3ic6hesxg7u"
+path="res://.godot/imported/gerstner_eval.glsl-2bdf7ac92e4d39637e3edf13a168af3d.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/gerstner_eval.glsl"
+dest_files=["res://.godot/imported/gerstner_eval.glsl-2bdf7ac92e4d39637e3edf13a168af3d.res"]
+
+[params]
+

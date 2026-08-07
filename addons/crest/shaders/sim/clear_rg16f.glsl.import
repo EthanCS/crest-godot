@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://capowqllsl1xx"
+path="res://.godot/imported/clear_rg16f.glsl-c9365ae157eb2eda7206a0bba64c2871.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/clear_rg16f.glsl"
+dest_files=["res://.godot/imported/clear_rg16f.glsl-c9365ae157eb2eda7206a0bba64c2871.res"]
+
+[params]
+

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cgm68obxfgcen"
+path="res://.godot/imported/clear_rgba8.glsl-22f1dd7e0c4ebe14e69baf706fc68d3e.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/clear_rgba8.glsl"
+dest_files=["res://.godot/imported/clear_rgba8.glsl-22f1dd7e0c4ebe14e69baf706fc68d3e.res"]
+
+[params]
+

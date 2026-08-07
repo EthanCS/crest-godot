@@ -1,0 +1,24 @@
+# Godot 4+ specific ignores
+.godot/
+.import/
+
+# Imported translations (automatically generated from CSV files)
+*.translation
+
+# Mono-specific ignores
+.mono/
+data_*/
+*.dll
+*.pdb
+
+# Local reference copy of the original Unity Crest repository
+_reference/
+
+# Temporary test scripts
+_tmp_test/
+
+# macOS
+.DS_Store
+
+# Export presets
+export_presets.cfg

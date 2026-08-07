@@ -1,0 +1,66 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://addons/crest/core/ocean_renderer.gd" id="ocean"]
+[ext_resource type="Script" path="res://addons/crest/shapes/shape_gerstner.gd" id="gerstner"]
+[ext_resource type="Script" path="res://addons/crest/shapes/ocean_wave_spectrum.gd" id="spectrum"]
+[ext_resource type="Script" path="res://demo/demo.gd" id="demo"]
+[ext_resource type="Script" path="res://demo/fly_camera.gd" id="flycam"]
+
+[sub_resource type="ProceduralSkyMaterial" id="skymat"]
+sky_horizon_color = Color(0.65, 0.72, 0.8, 1)
+ground_horizon_color = Color(0.55, 0.6, 0.66, 1)
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("skymat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 2
+ambient_light_energy = 0.6
+reflected_light_source = 2
+
+[sub_resource type="Resource" id="spec"]
+script = ExtResource("spectrum")
+multiplier = 0.4
+
+[sub_resource type="Resource" id="spec_calm"]
+script = ExtResource("spectrum")
+multiplier = 0.15
+
+[node name="Main" type="Node3D"]
+script = ExtResource("demo")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 30, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.92388, 0.382683, 0, -0.382683, 0.92388, 0, 14, 42)
+current = true
+far = 200000.0
+script = ExtResource("flycam")
+
+[node name="CrestOceanRenderer" type="Node3D" parent="."]
+script = ExtResource("ocean")
+
+[node name="CrestShapeGerstner" type="Node3D" parent="CrestOceanRenderer"]
+script = ExtResource("gerstner")
+spectrum = SubResource("spec")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="Label" type="Label" parent="CanvasLayer"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 600.0
+offset_bottom = 100.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+text = "Crest demo"

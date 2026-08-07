@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b7ijttb22rd8i"
+path="res://.godot/imported/inject_clip.glsl-fb600df2732312eb573f589f9c07f0d1.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/inject_clip.glsl"
+dest_files=["res://.godot/imported/inject_clip.glsl-fb600df2732312eb573f589f9c07f0d1.res"]
+
+[params]
+

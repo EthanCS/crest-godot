@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://c5p7bl3rxy345"
+path="res://.godot/imported/cascade.glsl-04f90166e9b48ec4752ceda97b6e3e62.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/include/cascade.glsl"
+dest_files=["res://.godot/imported/cascade.glsl-04f90166e9b48ec4752ceda97b6e3e62.res"]
+
+[params]
+

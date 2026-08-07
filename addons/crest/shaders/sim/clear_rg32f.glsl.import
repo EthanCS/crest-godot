@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b7fmv8tvthv10"
+path="res://.godot/imported/clear_rg32f.glsl-c178f1b68fa51c06b55212aaf59f8ef5.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/clear_rg32f.glsl"
+dest_files=["res://.godot/imported/clear_rg32f.glsl-c178f1b68fa51c06b55212aaf59f8ef5.res"]
+
+[params]
+

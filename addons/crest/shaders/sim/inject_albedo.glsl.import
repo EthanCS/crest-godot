@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://ckjnj0jn7f67k"
+path="res://.godot/imported/inject_albedo.glsl-d1fc67957d7c214584e10dd2a4b1381d.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/inject_albedo.glsl"
+dest_files=["res://.godot/imported/inject_albedo.glsl-d1fc67957d7c214584e10dd2a4b1381d.res"]
+
+[params]
+

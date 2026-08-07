@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://ca606cvmeagua"
+path="res://.godot/imported/inject_flow.glsl-d9614486cb42ff591f78de9623eb6f45.res"
+
+[deps]
+
+source_file="res://addons/crest/shaders/sim/inject_flow.glsl"
+dest_files=["res://.godot/imported/inject_flow.glsl-d9614486cb42ff591f78de9623eb6f45.res"]
+
+[params]
+

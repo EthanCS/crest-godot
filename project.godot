@@ -1,0 +1,25 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Crest Ocean System for Godot"
+config/description="A port of the Crest ocean system (Unity, MIT) to Godot 4.6."
+run/main_scene="res://demo/main.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/crest/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+textures/default_filters/use_nearest_mipmap_filter=true
