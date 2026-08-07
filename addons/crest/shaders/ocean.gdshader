@@ -88,6 +88,7 @@ uniform float enable_clip_surface = 0.0;
 uniform float enable_sea_floor_depth = 1.0;
 uniform float enable_albedo = 0.0;
 uniform float enable_caustics = 1.0;
+uniform float debug_view = 0.0; // 0=off, 1=foam_amount, 2=white_foam, 3=foam_rgb
 
 instance uniform float ld_slice_index;
 
@@ -97,6 +98,8 @@ varying float v_lod_alpha;
 varying float v_slice;
 varying float v_variance;
 varying float v_sea_level_offset;
+varying vec3 v_dbg_foam_rgb;
+varying vec4 v_dbg_parts;
 
 
 void vertex() {
@@ -225,7 +228,9 @@ void fragment() {
 		// and blur it into higher mips: tiling of the small-scale normal
 		// map otherwise reads as banding on calm water from above.
 		float normal_fade = clamp(1.0 - pixel_z / 400.0, 0.25, 1.0);
-		float mip_bias = log2(max(pixel_z, 1.0)) * 0.5;
+		// Clamp: lod beyond the texture's mip chain is undefined (black
+		// triangles on the horizon skirt), negative for very near pixels.
+		float mip_bias = clamp(log2(max(pixel_z, 1.0)) * 0.5, 0.0, 8.0);
 		vec2 v0 = vec2(0.94, 0.34);
 		vec2 v1 = vec2(-0.85, -0.53);
 		float nstretch = normals_scale * cascade0_scale / 100.0;
@@ -312,13 +317,17 @@ void fragment() {
 		if (!underwater) {
 			refract_offset *= min(1.0, 0.5 * (scene_z - pixel_z)) / scene_z;
 		}
-		vec2 uv_refract = SCREEN_UV + refract_offset;
+		vec2 uv_refract_unclamped = SCREEN_UV + refract_offset;
+		vec2 uv_refract = clamp(uv_refract_unclamped, vec2(0.001), vec2(0.999));
 		float raw2 = textureLod(depth_texture, uv_refract, 0.0).r;
 		vec4 upos2 = INV_PROJECTION_MATRIX * vec4(uv_refract * 2.0 - 1.0, raw2, 1.0);
 		float scene_z2 = -upos2.z / upos2.w;
 
 		vec2 uv_background = SCREEN_UV;
-		if (scene_z2 > pixel_z) {
+		// Out-of-screen refractions behave differently across viewport
+		// implementations (black or garbage samples) - cancel them.
+		bool uv_outside = any(lessThan(uv_refract_unclamped, vec2(0.0))) || any(greaterThan(uv_refract_unclamped, vec2(1.0)));
+		if (scene_z2 > pixel_z && !uv_outside) {
 			// Refracted sample is still below the surface: accept.
 			uv_background = uv_refract;
 			fog_dist = scene_z2 - pixel_z;
@@ -333,6 +342,10 @@ void fragment() {
 		vec3 cam_forward = -VIEW_MATRIX[2].xyz;
 		vec3 view_dir = normalize(v_world_pos - CAMERA_POSITION_WORLD);
 		scene_pos = CAMERA_POSITION_WORLD + view_dir * (fog_dist + pixel_z) / dot(cam_forward, view_dir);
+	}
+	if (debug_view > 4.5 && debug_view < 5.5) {
+		ALBEDO = scene_colour;
+		ALPHA = 1.0;
 	}
 
 	// Caustics on the refracted scene colour. Only meaningful where the
@@ -407,10 +420,13 @@ void fragment() {
 		float ft1 = white_foam_texture((1.25 * v_undisplaced_xz + uv_offset) / (foam_tex_scale * 2.0), foam_amount);
 		float white_foam = mix(ft0, ft1, v_lod_alpha);
 
-		// 3D foam lighting from texture differences.
-		vec2 dd = vec2(0.25 * pixel_z / foam_tex_scale, 0.0);
-		float dfdx = white_foam_texture((1.25 * (v_undisplaced_xz + dd.xy * foam_tex_scale) + uv_offset) / foam_tex_scale, foam_amount) - ft0;
-		float dfdz = white_foam_texture((1.25 * (v_undisplaced_xz + dd.yx * foam_tex_scale) + uv_offset) / foam_tex_scale, foam_amount) - ft0;
+		// 3D foam lighting from texture differences. dd is in foam-texture
+		// texel units (Crest: 0.25 * pixelZ * texelSize), NOT scaled by the
+		// world foam scale - getting this wrong scatters black blotches.
+		vec2 base_uv = (1.25 * v_undisplaced_xz + uv_offset) / foam_tex_scale;
+		vec2 dd = vec2(0.25 * pixel_z / 450.0, 0.0);
+		float dfdx = white_foam_texture(base_uv + dd.xy, foam_amount) - ft0;
+		float dfdz = white_foam_texture(base_uv + dd.yx, foam_amount) - ft0;
 		vec3 foam_n = normalize(n_pixel + wave_foam_normal_strength * vec3(-dfdx, 0.0, -dfdz));
 
 		float foam_ndl = max(0.0, dot(foam_n, light_dir));
@@ -418,6 +434,8 @@ void fragment() {
 		foam_rgb += pow(max(0.0, dot(reflect(-view, foam_n), light_dir)), wave_foam_specular_falloff)
 			* wave_foam_specular_boost * light_color * shadow_soft;
 		col = mix(col, foam_rgb, foam_white_alpha * white_foam);
+		v_dbg_foam_rgb = foam_rgb;
+		v_dbg_parts = vec4(foam_ndl, shadow_soft, white_foam, 0.0);
 	}
 
 	// -- Underwater backface (Snell's window approximation) ---------------------------
@@ -430,7 +448,29 @@ void fragment() {
 		col = col_above * (1.0 - r_fres) + col_above * r_fres;
 	}
 
-	ALBEDO = col;
+	if (debug_view > 0.5) {
+		if (debug_view > 4.5) {
+			ALBEDO = col;
+		} else if (debug_view > 3.5) {
+			ALBEDO = v_dbg_parts.rgb;
+		} else if (debug_view > 2.5) {
+			ALBEDO = v_dbg_foam_rgb;
+		} else if (debug_view < 1.5) {
+			ALBEDO = vec3(foam_amount);
+		} else if (debug_view < 2.5) {
+			float dbg_ft = 0.0;
+			{
+				float foam_tex_scale2 = foam_scale * cascade0_scale / 25.0;
+				vec2 uv_off2 = vec2(crest_time / 10.0);
+				dbg_ft = white_foam_texture((1.25 * v_undisplaced_xz + uv_off2) / foam_tex_scale2, foam_amount);
+			}
+			ALBEDO = vec3(dbg_ft);
+		} else {
+			ALBEDO = col;
+		}
+	} else {
+		ALBEDO = col;
+	}
 
 	// Soften the intersection with scene geometry (20 cm fade).
 	ALPHA = clamp((scene_z - pixel_z) / 0.2, 0.0, 1.0);

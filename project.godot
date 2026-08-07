@@ -23,3 +23,7 @@ enabled=PackedStringArray("res://addons/crest/plugin.cfg")
 
 renderer/rendering_method="forward_plus"
 textures/default_filters/use_nearest_mipmap_filter=true
+
+[display]
+
+window/dpi/allow_hidpi=false
