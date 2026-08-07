@@ -62,6 +62,14 @@ https://github.com/wave-harmonic/crest
 - `CrestWaveSpectrum` randomises component phases per run unless
   `random_seed` is set — screenshots are not reproducible across runs by
   default.
+- **`Environment.AMBIENT_SOURCE_SKY` is 3, not 2** (2 = CANVAS/COLOR).
+  A scene environment with the wrong source silently gives zero ambient
+  light on the water (black water) — check the synced `ambient_light`
+  uniform when debugging colour issues.
+- Screen-space textures (`hint_screen_texture`/`hint_depth_texture`)
+  behave differently between the root viewport and SubViewports
+  (out-of-screen refraction UVs returned black in the root viewport) —
+  clamp refraction UVs and cancel out-of-screen taps.
 
 ## Testing
 

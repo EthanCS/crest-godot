@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://addons/crest/core/ocean_debug_gui.gd" id="dbggui"]
 [ext_resource type="Script" path="res://addons/crest/shapes/shape_gerstner.gd" id="gerstner"]
 [ext_resource type="Script" path="res://addons/crest/shapes/ocean_wave_spectrum.gd" id="spectrum"]
+[ext_resource type="Script" path="res://addons/crest/simulation/settings/sim_settings_wave.gd" id="wavesettings_script"]
 [ext_resource type="Script" path="res://addons/crest/reflection/ocean_planar_reflection.gd" id="planar"]
 [ext_resource type="Script" path="res://addons/crest/underwater/underwater_renderer.gd" id="underwater"]
 [ext_resource type="Script" path="res://demo/demo.gd" id="demo"]
@@ -23,13 +24,17 @@ ambient_light_source = 3
 ambient_light_energy = 1.0
 reflected_light_source = 2
 
+[sub_resource type="Resource" id="wavesettings"]
+script = ExtResource("wavesettings_script")
+damping = 0.02
+
 [sub_resource type="Resource" id="spec"]
 script = ExtResource("spectrum")
-multiplier = 0.4
+multiplier = 0.03
 
 [sub_resource type="Resource" id="spec_calm"]
 script = ExtResource("spectrum")
-multiplier = 0.15
+multiplier = 0.035
 
 [node name="Main" type="Node3D"]
 script = ExtResource("demo")
@@ -43,21 +48,24 @@ light_energy = 1.2
 shadow_enabled = false
 
 [node name="Camera3D" type="Camera3D" parent="."]
-position = Vector3(0, 15, 46)
-rotation = Vector3(-0.3, -0.35, 0)
+position = Vector3(0, 16, 13)
+rotation = Vector3(-0.785, 0, 0)
 current = true
 far = 200000.0
 script = ExtResource("flycam")
 
 [node name="CrestOceanRenderer" type="Node3D" parent="."]
 script = ExtResource("ocean")
+geometry_down_sample_factor = 1
+sim_settings_wave = SubResource("wavesettings")
+
+
+
+
 
 [node name="CrestShapeGerstner" type="Node3D" parent="CrestOceanRenderer"]
 script = ExtResource("gerstner")
 spectrum = SubResource("spec")
-
-[node name="CrestOceanPlanarReflection" type="Node3D" parent="."]
-script = ExtResource("planar")
 
 [node name="CrestOceanDebugGui" type="Node3D" parent="."]
 script = ExtResource("dbggui")
