@@ -1,0 +1,13 @@
+Crest Ocean System for Godot
+Copyright (c) 2026 crest-godot contributors
+
+This project is a port of the Crest ocean system for Unity
+(https://github.com/wave-harmonic/crest):
+
+    Copyright (c) 2019 Wave Harmonic and contributors
+    Licensed under the MIT License.
+
+Bundled under the same MIT License: foam/caustics/normal-map textures and
+GPU noise routines from Crest (see addons/crest/textures and
+addons/crest/shaders/include/gpu_noise.gdshaderinc for source attribution,
+including nimitz/stormoid's MIT-licensed hash noise collection).
