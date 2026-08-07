@@ -2,6 +2,9 @@
 .godot/
 .import/
 
+# Godot import cache files (regenerated locally)
+*.import
+
 # Imported translations (automatically generated from CSV files)
 *.translation
 
