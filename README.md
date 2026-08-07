@@ -9,6 +9,11 @@ of cascades, physically-based wave spectra, and a suite of interacting GPU
 simulations (foam, dynamic waves, flow, shadows...). This port reproduces
 that architecture and its feature set for Godot.
 
+<p float="left">
+  <img src="img/demo_ocean.png" width="49%" alt="Open ocean with Gerstner waves and floating objects">
+  <img src="img/demo_island.png" width="49%" alt="Island with sea floor depth and shoreline">
+</p>
+
 ## Features
 
 - **View-following LOD ocean surface** — concentric geometry rings with

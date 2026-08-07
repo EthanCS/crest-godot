@@ -96,8 +96,16 @@ func _process(delta: float) -> void:
 
 
 func _sync_shader(cam: Camera3D, water_height: float) -> void:
+	# Every uniform is set explicitly each frame: runtime-created
+	# ShaderMaterials cannot be relied on to apply declared default values.
 	_material.set_shader_parameter("effect_strength", _fade)
 	_material.set_shader_parameter("depth_fog_density", BASE_DEPTH_FOG_DENSITY * depth_fog_density_factor)
+	_material.set_shader_parameter("diffuse", Vector3(0.0, 0.0027, 0.170))
+	_material.set_shader_parameter("diffuse_grazing", Vector3(0.0, 0.0039, 0.169))
+	_material.set_shader_parameter("subsurface_colour", Vector3(0.0885, 0.497, 0.456))
+	_material.set_shader_parameter("subsurface_base", 0.0)
+	_material.set_shader_parameter("subsurface_sun", 1.7)
+	_material.set_shader_parameter("subsurface_sun_falloff", 5.0)
 
 	# Lighting: same values CrestOceanRenderer feeds the ocean material.
 	var light := _find_directional_light()

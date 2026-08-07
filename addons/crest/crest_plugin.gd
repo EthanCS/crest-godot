@@ -6,6 +6,7 @@ const _TYPES: Array[Array] = [
 	# [class script path, base type, display name]
 	["res://addons/crest/core/ocean_renderer.gd", "Node3D", "CrestOceanRenderer"],
 	["res://addons/crest/core/ocean_debug_gui.gd", "Node3D", "CrestOceanDebugGui"],
+	["res://addons/crest/core/floating_origin.gd", "Node3D", "CrestFloatingOrigin"],
 	["res://addons/crest/shapes/shape_gerstner.gd", "Node3D", "CrestShapeGerstner"],
 	["res://addons/crest/shapes/shape_fft.gd", "Node3D", "CrestShapeFFT"],
 	["res://addons/crest/interaction/simple_floating_object.gd", "Node3D", "CrestSimpleFloatingObject"],

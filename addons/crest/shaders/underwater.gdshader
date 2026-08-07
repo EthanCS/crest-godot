@@ -15,6 +15,9 @@
 // contains the opaque pass - the (transparent) ocean surface itself is not
 // included. Underwater that is harmless: those pixels have far/sky depth,
 // so the fog saturates and they converge to the scatter colour anyway.
+//
+// All uniforms are synced from CrestUnderwaterRenderer (runtime-created
+// ShaderMaterials cannot be relied on to apply declared default values).
 
 shader_type spatial;
 render_mode unshaded, depth_test_disabled, depth_draw_never, cull_disabled, fog_disabled;
@@ -26,9 +29,9 @@ uniform sampler2D depth_texture : hint_depth_texture, repeat_disable, filter_nea
 uniform vec3 depth_fog_density = vec3(0.9, 0.3, 0.35);
 
 // -- Scattering (Crest: ScatterColour, underwater branch) ----------------------
-uniform vec3 diffuse : source_color = vec3(0.0, 0.0027, 0.170);
-uniform vec3 diffuse_grazing : source_color = vec3(0.0, 0.0039, 0.169);
-uniform vec3 subsurface_colour : source_color = vec3(0.0885, 0.497, 0.456);
+uniform vec3 diffuse = vec3(0.0, 0.0027, 0.170);
+uniform vec3 diffuse_grazing = vec3(0.0, 0.0039, 0.169);
+uniform vec3 subsurface_colour = vec3(0.0885, 0.497, 0.456);
 uniform float subsurface_base = 0.0;
 uniform float subsurface_sun = 1.7;
 uniform float subsurface_sun_falloff = 5.0;
@@ -38,18 +41,16 @@ uniform vec3 light_dir = vec3(0.0, 1.0, 0.0);
 uniform vec3 light_color = vec3(1.0, 1.0, 1.0);
 uniform vec3 ambient_light = vec3(0.4, 0.45, 0.5);
 // Fade in/out when crossing the surface (0 = pass the scene through).
-uniform float effect_strength : hint_range(0.0, 1.0) = 0.0;
+uniform float effect_strength = 0.0;
 // 1 when the camera is right at the surface, 0 beyond the meniscus range.
-uniform float meniscus_strength : hint_range(0.0, 1.0) = 0.0;
+uniform float meniscus_strength = 0.0;
 // Viewport pixel y of the waterline (0 = top). Negative disables the band.
 uniform float waterline_screen_y = -1.0;
-// TEMP DEBUG: 1 = visualize scene_z (red) and raw depth (green).
-uniform float debug_view = 1.0;
 
 
 void vertex() {
-	// Full-screen triangle/quad in clip space (vertex positions are only
-	// used for culling; the node gives the mesh a huge cull margin).
+	// Full-screen quad in clip space (vertex positions are only used for
+	// culling; the node gives the mesh a huge cull margin).
 	POSITION = vec4(VERTEX.xy, 1.0, 1.0);
 }
 
@@ -62,12 +63,6 @@ void fragment() {
 	vec4 upos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, raw_depth, 1.0);
 	vec3 pos_vs = upos.xyz / upos.w;
 	float scene_z = -pos_vs.z;
-
-	// TEMP DEBUG: visualize scene_z (10 m = white) and raw depth.
-	if (debug_view > 0.5) {
-		ALBEDO = vec3(clamp(scene_z / 10.0, 0.0, 1.0), raw_depth, 0.0);
-		ALPHA = 1.0;
-	} else {
 
 	// World-space ray from the camera through this pixel (Crest: -view).
 	vec3 ray_ws = (INV_VIEW_MATRIX * vec4(normalize(pos_vs), 0.0)).xyz;
@@ -97,5 +92,4 @@ void fragment() {
 	// Writing ALPHA forces the transparent pass so the quad draws after the
 	// (transparent) ocean surface; render_priority keeps it last.
 	ALPHA = 1.0;
-	}
 }
