@@ -91,6 +91,13 @@ https://github.com/wave-harmonic/crest
   holes in a regular slit pattern. The ocean shader computes the surface
   depth from the world position in the vertex pass (`v_smooth_z`) and uses
   it for fog, refraction scaling, caustics and the alpha fade.
+- **Camera forward from `VIEW_MATRIX` is ROW 2 negated, not column 2.**
+  `-VIEW_MATRIX[2].xyz` reads column 2 of the world→view matrix, which
+  flips the pitch of the forward vector (only correct for a level camera);
+  at downward view angles it fired the reconstructed refracted scene point
+  dozens of metres into the sky and killed the caustics (invisible except
+  stray patches). Use
+  `-vec3(VIEW_MATRIX[0][2], VIEW_MATRIX[1][2], VIEW_MATRIX[2][2])`.
 
 ## Testing
 

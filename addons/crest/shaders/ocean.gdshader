@@ -408,7 +408,11 @@ void fragment() {
 		scene_colour = textureLod(screen_texture, uv_background, 0.0).rgb;
 
 		// World position of the refracted scene point (for caustics).
-		vec3 cam_forward = -VIEW_MATRIX[2].xyz;
+		// Camera forward is ROW 2 of the (world->view) VIEW_MATRIX, negated -
+		// -VIEW_MATRIX[2].xyz reads COLUMN 2, which flips the pitch component
+		// (only correct for a level camera) and sends the refracted point
+		// dozens of metres into the sky at downward view angles.
+		vec3 cam_forward = -vec3(VIEW_MATRIX[0][2], VIEW_MATRIX[1][2], VIEW_MATRIX[2][2]);
 		vec3 view_dir = normalize(v_world_pos - CAMERA_POSITION_WORLD);
 		scene_pos = CAMERA_POSITION_WORLD + view_dir * (fog_dist + v_smooth_z) / dot(cam_forward, view_dir);
 	}
