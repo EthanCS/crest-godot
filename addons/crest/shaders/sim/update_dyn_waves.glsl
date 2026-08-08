@@ -86,9 +86,13 @@ void main() {
 	vec2 uv_src = crest_world_to_uv(world_pos - pc.dt * flow_vel, cascade_src);
 
 	// Edge weight to suppress streaks when the source position leaves the
-	// previously covered region.
+	// previously covered region. Also gate samples clearly OUTSIDE the
+	// source window to zero: after a big camera jump (fast flight, or a
+	// pause-move-resume) the clamped edge content would otherwise smear
+	// across the newly exposed band and corrupt the whole wake pattern.
 	float dist_to_edge = min(min(uv_src.x, 1.0 - uv_src.x), min(uv_src.y, 1.0 - uv_src.y));
 	float weight_edge = mix(0.95, 1.0, clamp(dist_to_edge / 0.1, 0.0, 1.0));
+	weight_edge *= smoothstep(-0.03, -0.005, dist_to_edge);
 
 	float e = 1.0 / pc.texture_res;
 	vec2 fv = textureLod(dyn_waves_source, vec3(uv_src, float(lod_src)), 0.0).xy;
