@@ -115,7 +115,9 @@ if CrestCollision.sample_height(Vector2(x, z), out):
 view-following LOD ocean, an island fed by an `CrestOceanDepthCache`
 heightmap, floating objects with buoyancy and wakes, planar reflections and
 the underwater effect. Controls: **WASD/QE + mouse** to fly (Shift = fast),
-**U** to dive/surface, **F9** for the simulation debug overlay.
+**Space** to pause/resume (camera and HUD stay live, so the frozen frame can
+be inspected from any angle; the HUD shows the frozen ocean time and live
+camera pose), **U** to dive/surface, **F9** for the simulation debug overlay.
 
 ## Architecture
 

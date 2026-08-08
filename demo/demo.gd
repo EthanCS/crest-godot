@@ -11,6 +11,11 @@ var _label: Label
 
 func _ready() -> void:
 	_label = $CanvasLayer/Label
+	# Keep the demo root (and with it the camera + HUD) processing while the
+	# tree is paused; pause-able systems are opted out individually below.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	$CrestOceanRenderer.process_mode = Node.PROCESS_MODE_PAUSABLE
+	$CrestOceanDebugGui.process_mode = Node.PROCESS_MODE_PAUSABLE
 	_spawn_shallow_seabed()
 	_spawn_boat()
 	if "--debug-gui" in OS.get_cmdline_user_args():
@@ -111,6 +116,7 @@ func _spawn_boat() -> void:
 	boat.set("radius", 12.0)
 	boat.set("speed", 2.0)
 	boat.position = Vector3(12.0, 0.0, 0.0)
+	boat.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(boat)
 
 	var hull := MeshInstance3D.new()
@@ -145,6 +151,14 @@ func _make_mat(color: Color) -> StandardMaterial3D:
 	return m
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	# Space: freeze the ocean/boat (camera + HUD keep running so the frozen
+	# moment can be inspected from any angle; the label shows the frozen
+	# ocean time and the live camera pose).
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE:
+		get_tree().paused = not get_tree().paused
+
+
 func _process(_delta: float) -> void:
 	if _label:
 		var ocean := CrestOceanRenderer.instance
@@ -155,4 +169,5 @@ func _process(_delta: float) -> void:
 			var p := cam.global_position
 			var r := cam.global_rotation
 			cam_info = "cam=(%.1f,%.1f,%.1f) pitch=%.0f yaw=%.0f" % [p.x, p.y, p.z, rad_to_deg(r.x), rad_to_deg(r.y)]
-		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | U: dive/surface | F9: debug overlay | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f | lodAlpha: %.2f\n%s" % [fps, int(ocean.ocean_scale) if ocean else 0, ocean.current_time() if ocean else 0.0, ocean.viewer_altitude_level_alpha if ocean else 0.0, cam_info]
+		var paused_tag := " | PAUSED (Space)" if get_tree().paused else ""
+		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | U: dive/surface | Space: pause | F9: debug overlay | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f | lodAlpha: %.2f%s\n%s" % [fps, int(ocean.ocean_scale) if ocean else 0, ocean.current_time() if ocean else 0.0, ocean.viewer_altitude_level_alpha if ocean else 0.0, paused_tag, cam_info]
