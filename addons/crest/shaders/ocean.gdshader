@@ -6,7 +6,12 @@
 // caustics, shoreline feathering, clip surface, underwater backface.
 
 shader_type spatial;
-render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
+// depth_draw_always: the surface writes depth in the transparent pass, so
+// overlapping wave layers (crest over crest) self-occlude correctly instead
+// of far fragments bleeding through near ones. The hint_depth_texture
+// snapshot is taken after the opaque pass, so these writes do NOT pollute
+// the refraction/absorption depth reads.
+render_mode unshaded, blend_mix, depth_draw_always, cull_disabled;
 
 #include "res://addons/crest/shaders/include/crest_ocean_data.gdshaderinc"
 
@@ -237,10 +242,12 @@ void fragment() {
 	// Crest's default material culls back faces (CullMode Back); the port
 	// needs cull_disabled for the underwater view, and discarding above-water
 	// backfaces eats the folded flanks (waves visibly shrink/grow as the
-	// camera orbits). Instead, folded flanks seen from above shade through
-	// the front path (force_underwater) but skip the whitecap foam layer -
-	// otherwise the fold ribbon picks up the breaking-crest foam and reads
-	// as crystalline white shard triangles on the crest.
+	// camera orbits). Instead, fold ribbons seen from above shade as
+	// ordinary opaque water: front-path shading (force_underwater), no
+	// refraction/absorption mix (the refracted depth collapses onto the
+	// background right behind the ribbon - bright see-through patches),
+	// foam lit with the up normal (the folded surface normal facets it
+	// into white shards), forced opaque (no see-through holes).
 	bool fold_backface = !FRONT_FACING && force_underwater < -0.5;
 
 	vec3 view = normalize(CAMERA_POSITION_WORLD - v_world_pos);
@@ -431,6 +438,18 @@ void fragment() {
 			// Refracted onto something in front of the surface: cancel.
 			fog_dist = max(scene_z - v_smooth_z, 0.0);
 		}
+		// Floor the fog column at (most of) the local water column over the
+		// view slope: the screen-space depth gap collapses whenever opaque
+		// background sits right behind the surface (steep wave flanks,
+		// floating hulls), making metres of water read as clear film -
+		// waves go see-through and show whatever (and its foam) lies
+		// behind. The 0.7 factor keeps the floor just below the geometric
+		// expectation for genuine down-look refractions, so only the
+		// collapsed cases are raised. With the depth sim off there is no
+		// column to reason about, so keep the raw screen depth there.
+		if (!underwater && enable_sea_floor_depth > 0.5) {
+			fog_dist = max(fog_dist, min(sea_depth * 0.7 / max(abs(view.y), 0.15), 60.0));
+		}
 		scene_colour = textureLod(screen_texture, uv_background, 0.0).rgb;
 
 		// World position of the refracted scene point (for caustics).
@@ -475,7 +494,12 @@ void fragment() {
 	}
 
 	// Absorb the scene colour with depth (Beer-Lambert per channel).
-	if (!underwater) {
+	// Fold ribbons skip the refraction mix: their refracted depth sample
+	// collapses onto the opaque background right behind the ribbon
+	// (seabed a metre behind a several-metres-thick wave curl), so the
+	// fog column is tiny and the ribbon renders as a bright see-through
+	// patch with whatever foam lies behind. Opaque scattering instead.
+	if (!underwater && !fold_backface) {
 		vec3 absorb = 1.0 - exp(-depth_fog_density * fog_dist);
 		col = mix(scene_colour, col + bubble_col, absorb);
 	}
@@ -508,7 +532,7 @@ void fragment() {
 	}
 
 	// -- Foam on top ------------------------------------------------------------------
-	if (enable_foam > 0.5 && !underwater && !fold_backface) {
+	if (enable_foam > 0.5 && !underwater) {
 		float foam_tex_scale = foam_scale * cascade0_scale / 25.0;
 		vec2 uv_offset = vec2(crest_time / 10.0);
 		float ft0 = white_foam_texture((1.25 * v_undisplaced_xz + uv_offset) / foam_tex_scale, foam_amount);
@@ -522,7 +546,11 @@ void fragment() {
 		vec2 dd = vec2(0.25 * pixel_z / 450.0, 0.0);
 		float dfdx = white_foam_texture(base_uv + dd.xy, foam_amount) - ft0;
 		float dfdz = white_foam_texture(base_uv + dd.yx, foam_amount) - ft0;
-		vec3 foam_n = normalize(n_pixel + wave_foam_normal_strength * vec3(-dfdx, 0.0, -dfdz));
+		// Fold ribbons (breaking curls seen from above) light their foam
+		// with the up normal: the folded surface normal is chaotic per texel
+		// and turns the foam into faceted white shards.
+		vec3 foam_base_n = fold_backface ? vec3(0.0, 1.0, 0.0) : n_pixel;
+		vec3 foam_n = normalize(foam_base_n + wave_foam_normal_strength * vec3(-dfdx, 0.0, -dfdz));
 
 		float foam_ndl = max(0.0, dot(foam_n, light_dir));
 		vec3 foam_rgb = foam_white_color * (ambient_light + wave_foam_light_scale * light_color * foam_ndl * shadow_soft);
@@ -600,6 +628,9 @@ void fragment() {
 		ALBEDO = col;
 	}
 
-	// Soften the intersection with scene geometry (20 cm fade).
-	ALPHA = force_opaque > 0.5 ? 1.0 : clamp((scene_z - pixel_z) / 0.2, 0.0, 1.0);
+	// Soften the intersection with scene geometry (20 cm fade). Fold ribbons
+	// stay opaque: their background depth can sit right behind the ribbon
+	// (same collapse as the refraction), which would punch see-through
+	// holes into the wave body.
+	ALPHA = force_opaque > 0.5 || fold_backface ? 1.0 : clamp((scene_z - pixel_z) / 0.2, 0.0, 1.0);
 }
