@@ -148,5 +148,11 @@ func _make_mat(color: Color) -> StandardMaterial3D:
 func _process(_delta: float) -> void:
 	if _label:
 		var ocean := CrestOceanRenderer.instance
+		var cam := get_viewport().get_camera_3d()
 		var fps := Engine.get_frames_per_second()
-		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | U: dive/surface | F9: debug overlay | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f" % [fps, int(ocean.ocean_scale) if ocean else 0, ocean.current_time() if ocean else 0.0]
+		var cam_info := ""
+		if cam:
+			var p := cam.global_position
+			var r := cam.global_rotation
+			cam_info = "cam=(%.1f,%.1f,%.1f) pitch=%.0f yaw=%.0f" % [p.x, p.y, p.z, rad_to_deg(r.x), rad_to_deg(r.y)]
+		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | U: dive/surface | F9: debug overlay | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f | lodAlpha: %.2f\n%s" % [fps, int(ocean.ocean_scale) if ocean else 0, ocean.current_time() if ocean else 0.0, ocean.viewer_altitude_level_alpha if ocean else 0.0, cam_info]
