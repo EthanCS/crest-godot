@@ -234,14 +234,14 @@ void fragment() {
 		}
 	}
 
-	// Crest's default material culls back faces (CullMode Back): folded wave
-	// flanks (self-intersecting chop / wake sharpening) seen from above are
-	// never drawn, instead of flashing foam-covered white shards. The port
-	// needs cull_disabled for the underwater view, so emulate the cull per
-	// fragment whenever the camera is well above the waterline.
-	if (!FRONT_FACING && force_underwater < -0.5) {
-		discard;
-	}
+	// Crest's default material culls back faces (CullMode Back); the port
+	// needs cull_disabled for the underwater view, and discarding above-water
+	// backfaces eats the folded flanks (waves visibly shrink/grow as the
+	// camera orbits). Instead, folded flanks seen from above shade through
+	// the front path (force_underwater) but skip the whitecap foam layer -
+	// otherwise the fold ribbon picks up the breaking-crest foam and reads
+	// as crystalline white shard triangles on the crest.
+	bool fold_backface = !FRONT_FACING && force_underwater < -0.5;
 
 	vec3 view = normalize(CAMERA_POSITION_WORLD - v_world_pos);
 	// Crest: IsUnderwater(i_isFrontFace, _CrestForceUnderwater) - well above
@@ -312,6 +312,13 @@ void fragment() {
 	n_pixel.xz *= normals_strength_overall;
 	n_pixel = normalize(n_pixel);
 	if (underwater) {
+		n_pixel = -n_pixel;
+	}
+	// Fold ribbons seen from above keep the texture normal of the (folded)
+	// surface, which can point into the wave - the grazing dot(n, view)
+	// drives fresnel high and the ribbon mirrors the sky. Flip it to face
+	// the viewer so the ribbon shades like ordinary water.
+	if (fold_backface && dot(n_pixel, view) < 0.0) {
 		n_pixel = -n_pixel;
 	}
 
@@ -501,7 +508,7 @@ void fragment() {
 	}
 
 	// -- Foam on top ------------------------------------------------------------------
-	if (enable_foam > 0.5 && !underwater) {
+	if (enable_foam > 0.5 && !underwater && !fold_backface) {
 		float foam_tex_scale = foam_scale * cascade0_scale / 25.0;
 		vec2 uv_offset = vec2(crest_time / 10.0);
 		float ft0 = white_foam_texture((1.25 * v_undisplaced_xz + uv_offset) / foam_tex_scale, foam_amount);
