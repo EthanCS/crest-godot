@@ -234,6 +234,15 @@ void fragment() {
 		}
 	}
 
+	// Crest's default material culls back faces (CullMode Back): folded wave
+	// flanks (self-intersecting chop / wake sharpening) seen from above are
+	// never drawn, instead of flashing foam-covered white shards. The port
+	// needs cull_disabled for the underwater view, so emulate the cull per
+	// fragment whenever the camera is well above the waterline.
+	if (!FRONT_FACING && force_underwater < -0.5) {
+		discard;
+	}
+
 	vec3 view = normalize(CAMERA_POSITION_WORLD - v_world_pos);
 	// Crest: IsUnderwater(i_isFrontFace, _CrestForceUnderwater) - well above
 	// or below the surface the facing is overridden, so folded wave flanks
