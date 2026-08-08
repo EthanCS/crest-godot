@@ -96,6 +96,12 @@ uniform float enable_caustics = 1.0;
 uniform float debug_view = 0.0; // 0=off, 1=foam_amount, 2=white_foam, 3=foam_rgb
 // Debug: force opaque (disables the geometry-intersection alpha fade).
 uniform float force_opaque = 0.0;
+// Crest: _CrestForceUnderwater (SurfaceSelfIntersectionFixMode). +1 when the
+// camera is well below the surface, -1 when well above, 0 near the
+// waterline (then fragment facing decides). Without the override, folded /
+// self-intersecting wave flanks seen from above render as flat
+// underwater-coloured triangles (navy dashes at the horizon / wake).
+uniform float force_underwater = 0.0;
 
 instance uniform float ld_slice_index;
 
@@ -229,7 +235,11 @@ void fragment() {
 	}
 
 	vec3 view = normalize(CAMERA_POSITION_WORLD - v_world_pos);
-	bool underwater = !FRONT_FACING;
+	// Crest: IsUnderwater(i_isFrontFace, _CrestForceUnderwater) - well above
+	// or below the surface the facing is overridden, so folded wave flanks
+	// (self-intersecting chop/wake sharpening) shade through the front path
+	// instead of flashing the flat underwater colour.
+	bool underwater = force_underwater > 0.5 ? true : (force_underwater < -0.5 ? false : !FRONT_FACING);
 
 	// -- Screen depths -------------------------------------------------------
 	// The surface's own view depth comes from the vertex pass (v_smooth_z):
@@ -416,10 +426,6 @@ void fragment() {
 		vec3 view_dir = normalize(v_world_pos - CAMERA_POSITION_WORLD);
 		scene_pos = CAMERA_POSITION_WORLD + view_dir * (fog_dist + v_smooth_z) / dot(cam_forward, view_dir);
 	}
-	if (debug_view > 4.5 && debug_view < 5.5) {
-		ALBEDO = scene_colour;
-		ALPHA = 1.0;
-	}
 
 	// Caustics on the refracted scene colour. Only meaningful where the
 	// refracted scene point is actually below the (shallow) sea floor - fade
@@ -522,7 +528,9 @@ void fragment() {
 	}
 
 	if (debug_view > 0.5) {
-		if (debug_view > 16.5) {
+		if (debug_view > 18.5) {
+			ALBEDO = underwater ? vec3(1.0, 0.0, 1.0) : vec3(0.0, 0.7, 0.0);
+		} else if (debug_view > 16.5) {
 			ALBEDO = vec3(raw_depth);
 		} else if (debug_view > 15.5) {
 			ALBEDO = vec3(clamp((scene_z - pixel_z) / 0.2, 0.0, 1.0));
@@ -554,7 +562,7 @@ void fragment() {
 				vec3(0.5, 0.5, 1.0), vec3(0.0, 1.0, 0.0));
 			ALBEDO = wt0 * tints[c0 % 8] + wt1 * tints[c1 % 8];
 		} else if (debug_view > 4.5) {
-			ALBEDO = col;
+			ALBEDO = scene_colour;
 		} else if (debug_view > 3.5) {
 			ALBEDO = v_dbg_parts.rgb;
 		} else if (debug_view > 2.5) {

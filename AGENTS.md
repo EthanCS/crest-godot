@@ -84,6 +84,17 @@ https://github.com/wave-harmonic/crest
   renderer's per-frame sync path is unreliable** (value reads back set but
   never reaches the render). Use the `CREST_MAT_OVERRIDES="key=val,..."`
   env hook in `ocean_renderer.gd::_sync_material_params` for A/B tests.
+- **SubViewport QA shots freeze material uniform updates.** In a
+  SubViewport (the metric_check harness), `set_shader_parameter` calls
+  made after the material's first render never reach the GPU (floats,
+  vectors, arrays, instance uniforms alike — verified with a minimal
+  repro; the root viewport tracks updates fine). Per-frame synced values
+  (crest_time, cascade data, force_underwater, ...) are stuck at their
+  first-rendered value in harness shots. Consequences: QA of
+  uniform-driven changes must set them via `CREST_MAT_OVERRIDES` (present
+  from frame 0, so they land) or verify in the real window via
+  `screencapture`; the wave field still moves because the sims run on the
+  RenderingDevice, whose textures update regardless.
 - **Do not use fragment-side `-VERTEX.z` as the surface view depth.**
   With displaced positions + the clip-space `POSITION` override it returns
   wrong values at grazing angles on some drivers (observed ~1.7x the true
@@ -142,4 +153,7 @@ Other QA scenes:
   9=refraction fog/10, 10=surface view depth/200, 11=refracted scene
   depth/200, 12=(scene-surface depth)/20, 13=scene depth/200,
   14=surface view depth/1000, 15=scene depth/1000, 16=alpha fade,
-  17=raw depth buffer. `force_opaque=1` disables the alpha fade.
+  17=raw depth buffer, 19=underwater state (magenta=backface/underwater
+  branch — folded wave flanks seen from above should be green whenever
+  the camera is >2 m from the surface, i.e. force_underwater=±1).
+  `force_opaque=1` disables the alpha fade.

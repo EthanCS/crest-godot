@@ -557,6 +557,15 @@ func _sync_material_params(time: float) -> void:
 	ocean_material.set_shader_parameter("lod_alpha_black_point_white_point_fade", 1.0 - 2.0 * black_point)
 	ocean_material.set_shader_parameter("mesh_scale_lerp", viewer_altitude_level_alpha)
 	ocean_material.set_shader_parameter("ocean_level", ocean_level)
+	# Crest: _CrestForceUnderwater (SurfaceSelfIntersectionFixMode) - override
+	# fragment facing when the camera is far enough from the surface, so
+	# folded wave flanks don't flash the flat underwater colour.
+	var force_underwater := 0.0
+	if viewer_height_above_water < -2.0:
+		force_underwater = 1.0
+	elif viewer_height_above_water > 2.0:
+		force_underwater = -1.0
+	ocean_material.set_shader_parameter("force_underwater", force_underwater)
 	# Test hook: CREST_MAT_OVERRIDES="key=val,key=val" applied on the sync
 	# path. (set_shader_parameter from outside this path is unreliable.)
 	if OS.has_environment("CREST_MAT_OVERRIDES"):
