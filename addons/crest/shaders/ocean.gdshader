@@ -23,6 +23,11 @@ uniform float normals_strength_overall = 1.0;
 uniform float normals_scale = 40.0;
 uniform float normals_strength = 0.36;
 uniform sampler2D normals_texture : filter_linear_mipmap, repeat_enable;
+// Displacement-derived normals fade out beyond this pixel depth (their
+// per-texel stepping shows as stripes at distance on calm water).
+uniform float disp_normals_far_fade = 250.0;
+// Floor of the displacement-normal contribution at/after the fade distance.
+uniform float disp_normals_far_floor = 0.0;
 
 // -- Scattering --------------------------------------------------------------
 uniform vec3 diffuse = vec3(0.0, 0.0027, 0.170);
@@ -89,6 +94,8 @@ uniform float enable_sea_floor_depth = 1.0;
 uniform float enable_albedo = 0.0;
 uniform float enable_caustics = 1.0;
 uniform float debug_view = 0.0; // 0=off, 1=foam_amount, 2=white_foam, 3=foam_rgb
+// Debug: force opaque (disables the geometry-intersection alpha fade).
+uniform float force_opaque = 0.0;
 
 instance uniform float ld_slice_index;
 
@@ -98,6 +105,7 @@ varying float v_lod_alpha;
 varying float v_slice;
 varying float v_variance;
 varying float v_sea_level_offset;
+varying float v_smooth_z;
 varying vec3 v_dbg_foam_rgb;
 varying vec4 v_dbg_parts;
 
@@ -114,9 +122,13 @@ void vertex() {
 	world_pos.xz -= fract(tile_origin / grid2) * grid2;
 
 	// 2. LOD alpha: 0 at one tile width from centre, 1 at two.
+	// Relative to THIS slice's tile width (Crest: cascadeData0 is
+	// _CrestCascadeData[_LD_SliceIndex], not cascade 0) - using cascade 0
+	// here over-morphs every outer ring and opens T-junction cracks at the
+	// ring boundaries.
 	vec2 d = abs(world_pos.xz - ocean_center_pos.xz);
 	float taxicab = max(d.x, d.y);
-	float lod_alpha = taxicab / cascade_data_a[0].z - 1.0;
+	float lod_alpha = taxicab / cascade_data_a[slice].z - 1.0;
 	lod_alpha = max((lod_alpha - lod_alpha_black_point_fade) / lod_alpha_black_point_white_point_fade, 0.0);
 	// Clamp: outer rings would otherwise morph vertices unboundedly.
 	lod_alpha = min(lod_alpha, 1.0);
@@ -142,21 +154,35 @@ void vertex() {
 	float wt1 = (1.0 - wt0) * crest_cascade_weight(c1);
 	v_undisplaced_xz = world_pos.xz;
 	float variance = 0.0;
+	vec2 chop = vec2(0.0);
 	if (wt0 > 0.001) {
 		vec4 s = crest_sample_displacements(vec3(crest_world_to_uv(v_undisplaced_xz, c0), float(c0)));
 		world_pos += wt0 * s.xyz;
 		variance += wt0 * s.w;
+		chop += wt0 * s.xz;
 	}
 	if (wt1 > 0.001) {
 		vec4 s = crest_sample_displacements(vec3(crest_world_to_uv(v_undisplaced_xz, c1), float(c1)));
 		world_pos += wt1 * s.xyz;
 		variance += wt1 * s.w;
+		chop += wt1 * s.xz;
 	}
 
-	// 5. Sea level offset (varying water level bodies).
+	// 5. Sea level offset (varying water level bodies). Dual-cascade blend
+	// like the displacement (Crest samples both weights at the displaced
+	// position) - single-cascade sampling steps at ring boundaries.
 	float sea_level_offset = 0.0;
 	if (enable_sea_floor_depth > 0.5) {
-		crest_sample_sea_depth(world_pos.xz, c0, sea_level_offset);
+		if (wt0 > 0.001) {
+			float off0 = 0.0;
+			crest_sample_sea_depth(world_pos.xz, c0, off0);
+			sea_level_offset += wt0 * off0;
+		}
+		if (wt1 > 0.001) {
+			float off1 = 0.0;
+			crest_sample_sea_depth(world_pos.xz, c1, off1);
+			sea_level_offset += wt1 * off1;
+		}
 		world_pos.y += sea_level_offset;
 	}
 
@@ -165,14 +191,20 @@ void vertex() {
 	v_slice = float(slice);
 	v_variance = variance;
 	v_sea_level_offset = sea_level_offset;
+	// View depth WITHOUT the horizontal chop displacement: the chop jitters
+	// per cascade texel and would otherwise stripe the refraction fog /
+	// absorption on calm shallow water (and step at ring boundaries).
+	v_smooth_z = -(VIEW_MATRIX * vec4(world_pos.x - chop.x, world_pos.y, world_pos.z - chop.y, 1.0)).z;
 
 	POSITION = PROJECTION_MATRIX * VIEW_MATRIX * vec4(world_pos, 1.0);
 }
 
 
 // Foam texture with black-level smoothstep (Crest: WhiteFoamTexture).
+// Auto-mip sampling (Crest: TiledTexture.Sample) - explicit LOD 0 aliases
+// badly at distance (per-pixel speckle).
 float white_foam_texture(vec2 uv, float foam_amount) {
-	float ft = textureLod(foam_texture, uv, 0.0).r;
+	float ft = texture(foam_texture, uv).r;
 	float black_point = clamp(1.0 - foam_amount, 0.0, 1.0);
 	return smoothstep(black_point, black_point + wave_foam_feather, ft);
 }
@@ -200,19 +232,28 @@ void fragment() {
 	bool underwater = !FRONT_FACING;
 
 	// -- Screen depths -------------------------------------------------------
-	float pixel_z = -VERTEX.z;
+	// The surface's own view depth comes from the vertex pass (v_smooth_z):
+	// fragment-side -VERTEX.z is unreliable on some drivers (returns garbage
+	// at grazing angles with displaced/clip-space-overridden positions),
+	// which zeroed the alpha fade and opened seabed holes.
+	float pixel_z = v_smooth_z;
 	float raw_depth = textureLod(depth_texture, SCREEN_UV, 0.0).r;
 	vec4 upos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, raw_depth, 1.0);
 	float scene_z = -upos.z / upos.w;
 
 	// -- Normals from displacement (3-tap), dual cascade ---------------------
+	// Sampled at the UNDISPLACED position (Crest: positionXZWSUndisplaced).
+	// The finite-difference taps step at cascade texel boundaries, which
+	// reads as regular stripes at mid/far distance on calm water. Fade the
+	// contribution out with distance (detail normal maps carry the far look).
 	vec3 n_pixel = vec3(0.0, 1.0, 0.0);
 	float sss_det = 0.0;
+	float disp_n_fade = clamp(1.0 - pixel_z / disp_normals_far_fade, disp_normals_far_floor, 1.0);
 	if (wt0 > 0.001) {
-		n_pixel.xz += crest_sample_normal(v_world_pos.xz, c0, wt0, sss_det);
+		n_pixel.xz += crest_sample_normal(v_undisplaced_xz, c0, wt0 * disp_n_fade, sss_det);
 	}
 	if (wt1 > 0.001) {
-		n_pixel.xz += crest_sample_normal(v_world_pos.xz, c1, wt1, sss_det);
+		n_pixel.xz += crest_sample_normal(v_undisplaced_xz, c1, wt1 * disp_n_fade, sss_det);
 	}
 	// SSS from the Jacobian determinant (Crest: Ocean.shader remap).
 	float sss = sss_det;
@@ -224,32 +265,29 @@ void fragment() {
 	// -- Detail normal maps ----------------------------------------------------
 	float cascade0_scale = cascade_data_a[c0].z;
 	{
-		// Fade the detail normal map with distance (to a floor, not zero)
-		// and blur it into higher mips: tiling of the small-scale normal
-		// map otherwise reads as banding on calm water from above.
+		// Fade the detail normal map with distance (to a floor, not zero):
+		// tiling of the small-scale normal map otherwise reads as banding on
+		// calm water from above. Auto-mip sampling (Crest: TiledTexture.Sample)
+		// so the texture's mip chain blurs the pattern at distance - explicit
+		// LODs without mipmaps aliased into per-pixel speckle.
 		float normal_fade = clamp(1.0 - pixel_z / 400.0, 0.25, 1.0);
-		// Clamp: lod beyond the texture's mip chain is undefined (black
-		// triangles on the horizon skirt), negative for very near pixels.
-		float mip_bias = clamp(log2(max(pixel_z, 1.0)) * 0.5, 0.0, 8.0);
 		vec2 v0 = vec2(0.94, 0.34);
 		vec2 v1 = vec2(-0.85, -0.53);
 		float nstretch = normals_scale * cascade0_scale / 100.0;
 		float spd = 1.875 * pow(log(1.0 + 2.0 * crest_texel_width(c0)), 1.4);
 		vec2 uv0 = (v0 * crest_time * spd + v_undisplaced_xz) / nstretch;
 		vec2 uv1 = (v1 * crest_time * spd + v_undisplaced_xz) / nstretch;
-		vec2 norm = textureLod(normals_texture, uv0, mip_bias).xy * 2.0 - 1.0
-			+ textureLod(normals_texture, uv1, mip_bias).xy * 2.0 - 1.0;
-		// Blend with the next-larger scale for distance continuity.
-		float nblend = v_lod_alpha;
-		if (nblend > 0.001) {
-			float nstretch2 = nstretch * 2.0;
-			float spd2 = 1.875 * pow(log(1.0 + 4.0 * crest_texel_width(c0)), 1.4);
-			vec2 uvb0 = (v0 * crest_time * spd2 + v_undisplaced_xz) / nstretch2;
-			vec2 uvb1 = (v1 * crest_time * spd2 + v_undisplaced_xz) / nstretch2;
-			vec2 norm2 = textureLod(normals_texture, uvb0, mip_bias).xy * 2.0 - 1.0
-				+ textureLod(normals_texture, uvb1, mip_bias).xy * 2.0 - 1.0;
-			norm = mix(norm, norm2, nblend);
-		}
+		vec2 norm = texture(normals_texture, uv0).xy * 2.0 - 1.0
+			+ texture(normals_texture, uv1).xy * 2.0 - 1.0;
+		// Blend with the next-larger scale for distance continuity
+		// (unconditional taps: implicit derivatives need uniform flow).
+		float nstretch2 = nstretch * 2.0;
+		float spd2 = 1.875 * pow(log(1.0 + 4.0 * crest_texel_width(c0)), 1.4);
+		vec2 uvb0 = (v0 * crest_time * spd2 + v_undisplaced_xz) / nstretch2;
+		vec2 uvb1 = (v1 * crest_time * spd2 + v_undisplaced_xz) / nstretch2;
+		vec2 norm2 = texture(normals_texture, uvb0).xy * 2.0 - 1.0
+			+ texture(normals_texture, uvb1).xy * 2.0 - 1.0;
+		norm = mix(norm, norm2, v_lod_alpha);
 		n_pixel.xz += normals_strength * normal_fade * norm;
 	}
 	n_pixel.xz *= normals_strength_overall;
@@ -259,16 +297,37 @@ void fragment() {
 	}
 
 	// -- Sea depth ---------------------------------------------------------------
+	// Dual-cascade blend at the UNDISPLACED position (Crest: SampleSeaDepth
+	// with wt_smallerLod/wt_biggerLod) - single-cascade sampling steps at
+	// ring boundaries (visible as a colour seam where the depth varies).
 	float sea_level_offset = v_sea_level_offset;
 	float sea_depth = 1000.0;
 	if (enable_sea_floor_depth > 0.5) {
-		sea_depth = crest_sample_sea_depth(v_world_pos.xz, c0, sea_level_offset);
+		sea_depth = 0.0;
+		if (wt0 > 0.001) {
+			float off0 = 0.0;
+			sea_depth += wt0 * crest_sample_sea_depth(v_undisplaced_xz, c0, off0);
+		}
+		if (wt1 > 0.001) {
+			float off1 = 0.0;
+			sea_depth += wt1 * crest_sample_sea_depth(v_undisplaced_xz, c1, off1);
+		}
+		// Outermost slice: fade to the max with the smaller weight (Crest).
+		if (slice == int(slice_count) - 1) {
+			sea_depth = mix(subsurface_depth_max, sea_depth, wt0);
+		}
 	}
 
-	// -- Shadow ------------------------------------------------------------------
+	// -- Shadow (dual cascade at the displaced position, Crest parity) -------
 	vec2 shadow_val = vec2(1.0);
 	if (enable_shadow > 0.5) {
-		shadow_val = textureLod(ld_shadow, crest_world_to_safe_uv(v_world_pos.xz, c0), 0.0).rg;
+		shadow_val = vec2(0.0);
+		if (wt0 > 0.001) {
+			shadow_val += wt0 * textureLod(ld_shadow, crest_world_to_safe_uv(v_world_pos.xz, c0), 0.0).rg;
+		}
+		if (wt1 > 0.001) {
+			shadow_val += wt1 * textureLod(ld_shadow, crest_world_to_safe_uv(v_world_pos.xz, c1), 0.0).rg;
+		}
 	}
 	float shadow_soft = shadow_val.r;
 
@@ -292,9 +351,16 @@ void fragment() {
 	col = mix(diffuse_shadow, col, shadow_soft);
 	float shallowness = pow(1.0 - clamp(sea_depth / subsurface_depth_max, 0.0, 1.0), subsurface_depth_power);
 	col = mix(col, subsurface_shallow_col, shallowness);
-	// Albedo inputs override the scattering colour.
+	// Albedo inputs override the scattering colour (dual cascade at the
+	// undisplaced position, Crest parity).
 	if (enable_albedo > 0.5) {
-		vec4 alb = textureLod(ld_albedo, crest_world_to_safe_uv(v_world_pos.xz, c0), 0.0);
+		vec4 alb = vec4(0.0);
+		if (wt0 > 0.001) {
+			alb += wt0 * textureLod(ld_albedo, crest_world_to_safe_uv(v_undisplaced_xz, c0), 0.0);
+		}
+		if (wt1 > 0.001) {
+			alb += wt1 * textureLod(ld_albedo, crest_world_to_safe_uv(v_undisplaced_xz, c1), 0.0);
+		}
 		col = mix(col, alb.rgb, alb.a);
 	}
 	col *= ambient_light;
@@ -312,36 +378,39 @@ void fragment() {
 	vec3 scene_colour = vec3(0.0);
 	vec3 scene_pos = vec3(0.0);
 	float refract_raw_depth = raw_depth;
+	float scene_z2_dbg = 0.0;
 	{
 		vec2 refract_offset = refraction_strength * n_pixel.xz;
 		if (!underwater) {
-			refract_offset *= min(1.0, 0.5 * (scene_z - pixel_z)) / scene_z;
+			refract_offset *= min(1.0, 0.5 * (scene_z - v_smooth_z)) / scene_z;
 		}
 		vec2 uv_refract_unclamped = SCREEN_UV + refract_offset;
 		vec2 uv_refract = clamp(uv_refract_unclamped, vec2(0.001), vec2(0.999));
 		float raw2 = textureLod(depth_texture, uv_refract, 0.0).r;
 		vec4 upos2 = INV_PROJECTION_MATRIX * vec4(uv_refract * 2.0 - 1.0, raw2, 1.0);
 		float scene_z2 = -upos2.z / upos2.w;
+		scene_z2_dbg = scene_z2;
 
 		vec2 uv_background = SCREEN_UV;
 		// Out-of-screen refractions behave differently across viewport
 		// implementations (black or garbage samples) - cancel them.
 		bool uv_outside = any(lessThan(uv_refract_unclamped, vec2(0.0))) || any(greaterThan(uv_refract_unclamped, vec2(1.0)));
 		if (scene_z2 > pixel_z && !uv_outside) {
-			// Refracted sample is still below the surface: accept.
+			// Refracted sample is still below the surface: accept. The fog
+			// column uses the chop-free surface depth (v_smooth_z).
 			uv_background = uv_refract;
-			fog_dist = scene_z2 - pixel_z;
+			fog_dist = scene_z2 - v_smooth_z;
 			refract_raw_depth = raw2;
 		} else {
 			// Refracted onto something in front of the surface: cancel.
-			fog_dist = max(scene_z - pixel_z, 0.0);
+			fog_dist = max(scene_z - v_smooth_z, 0.0);
 		}
 		scene_colour = textureLod(screen_texture, uv_background, 0.0).rgb;
 
 		// World position of the refracted scene point (for caustics).
 		vec3 cam_forward = -VIEW_MATRIX[2].xyz;
 		vec3 view_dir = normalize(v_world_pos - CAMERA_POSITION_WORLD);
-		scene_pos = CAMERA_POSITION_WORLD + view_dir * (fog_dist + pixel_z) / dot(cam_forward, view_dir);
+		scene_pos = CAMERA_POSITION_WORLD + view_dir * (fog_dist + v_smooth_z) / dot(cam_forward, view_dir);
 	}
 	if (debug_view > 4.5 && debug_view < 5.5) {
 		ALBEDO = scene_colour;
@@ -449,7 +518,38 @@ void fragment() {
 	}
 
 	if (debug_view > 0.5) {
-		if (debug_view > 4.5) {
+		if (debug_view > 16.5) {
+			ALBEDO = vec3(raw_depth);
+		} else if (debug_view > 15.5) {
+			ALBEDO = vec3(clamp((scene_z - pixel_z) / 0.2, 0.0, 1.0));
+		} else if (debug_view > 14.5) {
+			ALBEDO = vec3(scene_z / 1000.0);
+		} else if (debug_view > 13.5) {
+			ALBEDO = vec3(pixel_z / 1000.0);
+		} else if (debug_view > 12.5) {
+			ALBEDO = vec3(scene_z / 200.0);
+		} else if (debug_view > 11.5) {
+			ALBEDO = vec3((scene_z - pixel_z) / 20.0);
+		} else if (debug_view > 10.5) {
+			ALBEDO = vec3(scene_z2_dbg / 200.0);
+		} else if (debug_view > 9.5) {
+			ALBEDO = vec3(pixel_z / 200.0);
+		} else if (debug_view > 8.5) {
+			ALBEDO = vec3(fog_dist / 10.0);
+		} else if (debug_view > 7.5) {
+			ALBEDO = vec3(sea_depth / 10.0);
+		} else if (debug_view > 6.5) {
+			ALBEDO = vec3(v_world_pos.y * 0.5 + 0.5);
+		} else if (debug_view > 5.5) {
+			// Slice tint (Crest: _DEBUGVISUALISE_SHAPESAMPLE): shows which
+			// cascades shade each pixel - a correct blend shows smooth
+			// crossfades at ring boundaries, never hard edges.
+			vec3 tints[8] = vec3[](
+				vec3(1.0, 0.0, 0.0), vec3(1.0, 1.0, 0.0), vec3(1.0, 0.0, 1.0),
+				vec3(0.0, 1.0, 1.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 1.0),
+				vec3(0.5, 0.5, 1.0), vec3(0.0, 1.0, 0.0));
+			ALBEDO = wt0 * tints[c0 % 8] + wt1 * tints[c1 % 8];
+		} else if (debug_view > 4.5) {
 			ALBEDO = col;
 		} else if (debug_view > 3.5) {
 			ALBEDO = v_dbg_parts.rgb;
@@ -473,5 +573,5 @@ void fragment() {
 	}
 
 	// Soften the intersection with scene geometry (20 cm fade).
-	ALPHA = clamp((scene_z - pixel_z) / 0.2, 0.0, 1.0);
+	ALPHA = force_opaque > 0.5 ? 1.0 : clamp((scene_z - pixel_z) / 0.2, 0.0, 1.0);
 }

@@ -110,6 +110,11 @@ void main() {
 	float depth_mul = 1.0 - (1.0 - clamp(2.0 * water_depth / wavelength, 0.0, 1.0)) * pc.dt * 2.0;
 	f *= mix(1.0, depth_mul, pc.attenuation_in_shallows);
 
+	// A trough cannot push the surface below the sea floor (it would expose
+	// the seabed through the surface). Clamp to a fraction of the water
+	// column; a no-op in deep water.
+	f = max(f, -0.9 * water_depth);
+
 	if (isnan(f) || isinf(f) || isnan(v) || isinf(v)) {
 		f = 0.0;
 		v = 0.0;

@@ -32,10 +32,12 @@ func _ready() -> void:
 
 ## Builds a shallow sandy seabed with gentle ripples, with a matching
 ## depth cache: refraction/caustics/shallow scattering need visible floor.
+## Sized well beyond the demo area so the terrain edge never reads as an
+## ocean artefact from any reasonable viewpoint.
 func _spawn_shallow_seabed() -> void:
 	var island_center := Vector2(0.0, 0.0)
-	var size := 320.0 # world side length of the seabed area
-	var res := 257
+	var size := 1200.0 # world side length of the seabed area
+	var res := 513
 	var img := Image.create(res, res, false, Image.FORMAT_RF)
 
 	var heights := []
@@ -45,7 +47,7 @@ func _spawn_shallow_seabed() -> void:
 			var p := Vector2((float(i) / (res - 1) - 0.5) * size, (float(j) / (res - 1) - 0.5) * size)
 			# Mostly flat sand at ~3.2 m with soft bumps, sloping down far out.
 			var h := -3.2
-			h -= 8.0 * smoothstep(120.0, 160.0, p.length())
+			h -= 8.0 * smoothstep(300.0, 420.0, p.length())
 			heights[j * res + i] = h
 			img.set_pixel(i, j, Color(h, 0, 0))
 

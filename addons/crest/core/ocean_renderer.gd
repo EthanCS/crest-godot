@@ -280,10 +280,14 @@ func _run_update(delta: float) -> void:
 	if absf(fposmod(root_xz.y * 60.0, 1.0)) < 0.003:
 		root_xz.y += 0.002
 	_tiles_root.global_position = Vector3(root_xz.x, ocean_level, root_xz.y)
-	_tiles_root.scale = Vector3(ocean_scale, 1.0, ocean_scale)
 
 	_update_viewer_height(viewer)
 	_update_scale()
+	# Assign the root scale only AFTER _update_scale(): the tiles must match
+	# this frame's cascade data, not last frame's (Crest sets Root.localScale
+	# inside LateUpdateScale). Otherwise the transition frame renders the
+	# mesh at the old scale against new-scale cascades - a one-frame crack.
+	_tiles_root.scale = Vector3(ocean_scale, 1.0, ocean_scale)
 
 	lod_transform.update_transforms(ocean_scale, root_xz)
 	_upload_cascade_data()
@@ -489,12 +493,33 @@ func _sync_static_material_params() -> void:
 	ocean_material.set_shader_parameter("slice_count", float(lod_count))
 	ocean_material.set_shader_parameter("base_mesh_density", lod_data_resolution * 0.25 / geometry_down_sample_factor)
 	# Crest's default foam texture is Foam2.png (foam.png is the legacy one).
-	ocean_material.set_shader_parameter("foam_texture", load("res://addons/crest/textures/Foam2.png"))
-	ocean_material.set_shader_parameter("normals_texture", load("res://addons/crest/textures/wave_normals.png"))
-	ocean_material.set_shader_parameter("caustics_texture", load("res://addons/crest/textures/caustics.png"))
+	# Loaded with generated mipmaps: imported .import files are git-ignored
+	# in this repo and regenerate mip-less by default, and explicit-LOD /
+	# auto-mip sampling without a mip chain aliases into per-pixel speckle
+	# at distance.
+	ocean_material.set_shader_parameter("foam_texture", _load_texture_mipped("res://addons/crest/textures/Foam2.png"))
+	ocean_material.set_shader_parameter("normals_texture", _load_texture_mipped("res://addons/crest/textures/wave_normals.png"))
+	ocean_material.set_shader_parameter("caustics_texture", _load_texture_mipped("res://addons/crest/textures/caustics.png"))
 	ocean_material.set_shader_parameter("planar_reflection", _get_fallback_texture_2d())
 
 	_sync_sim_toggles()
+
+
+## Loads a texture with a full mip chain regardless of import settings
+## (the repo git-ignores .import files, which regenerate mip-less by
+## default; explicit-LOD / auto-mip sampling without a mip chain aliases
+## into per-pixel speckle at distance). Falls back to the imported
+## resource for export builds, where raw PNGs are not shipped.
+static func _load_texture_mipped(path: String) -> Texture2D:
+	var bytes := FileAccess.get_file_as_bytes(path)
+	var img := Image.new()
+	if not bytes.is_empty() and img.load_png_from_buffer(bytes) == OK:
+		img.generate_mipmaps()
+		return ImageTexture.create_from_image(img)
+	var tex := load(path)
+	if tex == null:
+		push_error("CrestOceanRenderer: failed to load texture " + path)
+	return tex
 
 
 func _sync_sim_toggles() -> void:
@@ -532,6 +557,13 @@ func _sync_material_params(time: float) -> void:
 	ocean_material.set_shader_parameter("lod_alpha_black_point_white_point_fade", 1.0 - 2.0 * black_point)
 	ocean_material.set_shader_parameter("mesh_scale_lerp", viewer_altitude_level_alpha)
 	ocean_material.set_shader_parameter("ocean_level", ocean_level)
+	# Test hook: CREST_MAT_OVERRIDES="key=val,key=val" applied on the sync
+	# path. (set_shader_parameter from outside this path is unreliable.)
+	if OS.has_environment("CREST_MAT_OVERRIDES"):
+		for kv in OS.get_environment("CREST_MAT_OVERRIDES").split(","):
+			var pair := kv.split("=")
+			if pair.size() == 2:
+				ocean_material.set_shader_parameter(pair[0], float(pair[1]))
 
 	# Lighting: main directional light + environment ambient.
 	var light := _find_directional_light()

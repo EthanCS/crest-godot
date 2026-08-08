@@ -70,6 +70,27 @@ https://github.com/wave-harmonic/crest
   behave differently between the root viewport and SubViewports
   (out-of-screen refraction UVs returned black in the root viewport) —
   clamp refraction UVs and cancel out-of-screen taps.
+- **Textures used by 3D shaders need mipmaps.** Godot's default texture
+  import sets `mipmaps/generate=false`; without mips, `textureLod` /
+  auto-mip fall back to mip 0 and distant water degrades into per-pixel
+  speckle (caustics especially). The crest textures
+  (`addons/crest/textures/*.png`) all have mipmaps enabled — keep it that
+  way when adding textures.
+- **Fragment sampling of imported textures should use auto-mip
+  `texture()`** (Crest's `TiledTexture.Sample`), not `textureLod(uv, 0)`;
+  RD sim textures (`ld_*`) are mip-less and stay on `textureLod(uv, 0)`
+  like Crest's `SampleLevel`.
+- **`ShaderMaterial.set_shader_parameter` from outside the ocean
+  renderer's per-frame sync path is unreliable** (value reads back set but
+  never reaches the render). Use the `CREST_MAT_OVERRIDES="key=val,..."`
+  env hook in `ocean_renderer.gd::_sync_material_params` for A/B tests.
+- **Do not use fragment-side `-VERTEX.z` as the surface view depth.**
+  With displaced positions + the clip-space `POSITION` override it returns
+  wrong values at grazing angles on some drivers (observed ~1.7x the true
+  depth on Metal at ~600m), which zeroes the alpha fade and opens seabed
+  holes in a regular slit pattern. The ocean shader computes the surface
+  depth from the world position in the vertex pass (`v_smooth_z`) and uses
+  it for fog, refraction scaling, caustics and the alpha fade.
 
 ## Testing
 
@@ -80,3 +101,38 @@ Run the smoke test scene and inspect the screenshot it writes:
   --quit-after 300 _tmp_test/ocean_smoke.tscn
 # screenshot: ~/Library/Application Support/Godot/app_userdata/<project>/ocean_smoke.png
 ```
+
+Quantitative visual QA harness (`_tmp_test/metric_check.tscn`): runs the
+full demo in a SubViewport, takes ONE screenshot at `--shot-frame=N`,
+counts direct-sand pixels (mesh gaps / over-displaced troughs expose the
+bright seabed) and saves `user://metric_<tag>.png`. Useful args:
+`--cam=x,y,z,pitch`, `--seed=N`, `--freeze=T`, `--no-boat`, `--mult=X`.
+Compare shots with `_tmp_test/img_metric.py` (`diff` = min-shift mean|dL|
+for LOD-transition popping, `grid` = high-pass speckle energy for
+far-field gridding). Example:
+
+```sh
+/Applications/Godot_mono.app/Contents/MacOS/Godot --path . \
+  --quit-after 400 _tmp_test/metric_check.tscn -- \
+  --shot-frame=300 --no-boat --seed=7 --freeze=5 --cam=0,80,40,-60 --tag=chk
+```
+
+Other QA scenes:
+
+- `_tmp_test/vert_check.tscn` — GPU-free numerical verification of the
+  vertex pipeline: builds the real patch meshes, replicates the vertex
+  shader math on the CPU and asserts every patch-border vertex welds to a
+  neighbour (also UV round-trips). Run it after touching
+  `ocean_builder.gd` or the vertex shader snap/morph code.
+- `_tmp_test/crack_check.tscn` — crack reproduction: `--rise` (ascent,
+  captures the exact scale-transition frame and checks
+  tiles-vs-cascades scale consistency), `--orbit/--rotate/--static-yaw=D`
+  with `--pos=x,y,z --pitch=D` (arbitrary camera poses).
+- `debug_view` material uniform (set via `CREST_MAT_OVERRIDES`):
+  1=foam amount, 2=foam texture, 3=foam rgb, 4=foam parts,
+  5=refracted scene colour, **6=slice tint** (cascade weights — ring
+  boundaries must crossfade smoothly), 7=sea depth/10, 8=surface Y,
+  9=refraction fog/10, 10=surface view depth/200, 11=refracted scene
+  depth/200, 12=(scene-surface depth)/20, 13=scene depth/200,
+  14=surface view depth/1000, 15=scene depth/1000, 16=alpha fade,
+  17=raw depth buffer. `force_opaque=1` disables the alpha fade.
