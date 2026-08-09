@@ -153,7 +153,4 @@ Other QA scenes:
   9=refraction fog/10, 10=surface view depth/200, 11=refracted scene
   depth/200, 12=(scene-surface depth)/20, 13=scene depth/200,
   14=surface view depth/1000, 15=scene depth/1000, 16=alpha fade,
-  17=raw depth buffer, 19=underwater state (magenta=backface/underwater
-  branch — folded wave flanks seen from above should be green whenever
-  the camera is >2 m from the surface, i.e. force_underwater=±1).
-  `force_opaque=1` disables the alpha fade.
+  17=raw depth buffer. `force_opaque=1` disables the alpha fade.
