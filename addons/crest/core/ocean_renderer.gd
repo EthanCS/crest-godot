@@ -437,7 +437,9 @@ func _find_directional_light() -> DirectionalLight3D:
 	for node in get_tree().get_nodes_in_group(&"crest_main_light"):
 		if node is DirectionalLight3D:
 			return node
-	var nodes := get_tree().current_scene.find_children("*", "DirectionalLight3D", true, false) if get_tree().current_scene else []
+	var nodes: Array[Node] = []
+	if get_tree().current_scene:
+		nodes = get_tree().current_scene.find_children("*", "DirectionalLight3D", true, false)
 	if nodes.size() > 0:
 		return nodes[0]
 	return null
