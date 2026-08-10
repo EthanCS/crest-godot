@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://demo/main.tscn" id="1_main"]
+[ext_resource type="Script" path="res://demo/threeboats/ThreeBoatsScene.cs" id="2_scene"]
+
+[node name="ThreeBoats" type="Node3D"]
+script = ExtResource("2_scene")
+
+[node name="Main" parent="." instance=ExtResource("1_main")]
+spawn_demo_boat = false
+spawn_shallow_seabed = false

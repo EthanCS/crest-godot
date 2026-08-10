@@ -121,6 +121,11 @@ Controls: **WASD/QE + mouse** to fly (Shift = fast),
 be inspected from any angle; the HUD shows the frozen ocean time and live
 camera pose), **U** to dive/surface, **F9** for the simulation debug overlay.
 
+`demo/threeboats/threeboats.tscn` reconstructs Crest's BoatDev **Three Boats**
+example: three single-sample boats, a multi-probe medium boat, and the
+ocean liner all run as Jolt `RigidBody3D` bodies with Crest
+buoyancy and dynamic-wave wakes.
+
 ## Architecture
 
 All simulations live in `Texture2DArray`s with one layer per LOD cascade

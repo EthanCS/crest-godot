@@ -30,6 +30,8 @@ public partial class CrestBoatProbes : CrestFloatingObjectBase
     private bool _inWater;
     private float _gravity;
     private readonly List<Node3D> _probes = new();
+    private readonly List<float> _probeWeights = new();
+    private float _totalWeight;
 
     public override void _Ready()
     {
@@ -40,10 +42,25 @@ public partial class CrestBoatProbes : CrestFloatingObjectBase
         {
             var probe = point != null && !point._transform.IsEmpty
                 ? GetNodeOrNull<Node3D>(point._transform) : null;
-            if (probe != null) _probes.Add(probe);
+            if (probe != null)
+            {
+                _probes.Add(probe);
+                _probeWeights.Add(Mathf.Max(point!._weight, 0.0f));
+            }
         }
         if (_probes.Count == 0)
-            foreach (var child in GetChildren()) if (child is Node3D probe) _probes.Add(probe);
+            foreach (var child in GetChildren()) if (child is Node3D probe)
+            {
+                _probes.Add(probe);
+                _probeWeights.Add(1.0f);
+            }
+        foreach (var weight in _probeWeights) _totalWeight += weight;
+        _totalWeight = Mathf.Max(_totalWeight, 0.001f);
+        if (_body != null)
+        {
+            _body.CenterOfMassMode = RigidBody3D.CenterOfMassModeEnum.Custom;
+            _body.CenterOfMass = _centerOfMass;
+        }
         if (_body == null)
             GD.PushWarning("CrestBoatProbes: no RigidBody3D found on self or parents; disabled.");
     }
@@ -54,17 +71,21 @@ public partial class CrestBoatProbes : CrestFloatingObjectBase
         var ocean = CrestOceanRendererFacade.Instance;
         if (Engine.IsEditorHint() || _body == null || ocean == null) return;
         _inWater = false;
-        var probeCount = Mathf.Max(_probes.Count, 1);
-        foreach (var probe in _probes)
+        for (var index = 0; index < _probes.Count; index++)
         {
+            var probe = _probes[index];
             var position = probe.GlobalPosition + Vector3.Up * _forceHeightOffset;
+            position += _body.GlobalBasis * new Vector3(0, _centerOfMass.Y, 0);
             CrestCollisionCs.SampleHeight(new Vector2(position.X, position.Z), ocean.CurrentTime,
                 ocean.OceanLevel, out var waterHeight);
             var submersion = waterHeight - position.Y;
             if (submersion <= 0.0f) continue;
             _inWater = true;
-            var probeMass = _body.Mass / probeCount;
-            var force = Vector3.Up * _gravity * submersion * _forceMultiplier * probeMass;
+            var probeMass = _body.Mass / Mathf.Max(_probes.Count, 1);
+            // Crest's probe force is Archimedes force, not mass-scaled
+            // acceleration: density * gravity * displaced depth.
+            var force = Vector3.Up * (1000.0f * _gravity * submersion * _forceMultiplier
+                * _probeWeights[index] / _totalWeight);
             var pointVelocity = _body.LinearVelocity +
                 _body.AngularVelocity.Cross(position - _body.GlobalPosition);
             var localVelocity = _body.GlobalTransform.Basis.Inverse() * pointVelocity;

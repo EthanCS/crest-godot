@@ -31,6 +31,10 @@ enabled=PackedStringArray("res://addons/crest/plugin.cfg")
 
 import/blender/enabled=false
 
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
 [rendering]
 
 textures/default_filters/use_nearest_mipmap_filter=true

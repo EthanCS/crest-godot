@@ -7,6 +7,8 @@ const DepthCacheScript := preload("res://addons/crest/csharp/CrestOceanDepthCach
 const BoatScript := preload("res://demo/CrestDemoBoat.cs")
 
 @export var floater_count := 8
+@export var spawn_demo_boat := true
+@export var spawn_shallow_seabed := true
 
 var _label: Label
 
@@ -18,8 +20,9 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	$CrestOceanRenderer.process_mode = Node.PROCESS_MODE_PAUSABLE
 	$CrestOceanDebugGui.process_mode = Node.PROCESS_MODE_PAUSABLE
-	_spawn_shallow_seabed()
-	if not "--input-showcase" in OS.get_cmdline_user_args():
+	if spawn_shallow_seabed:
+		_spawn_shallow_seabed()
+	if spawn_demo_boat and not "--input-showcase" in OS.get_cmdline_user_args():
 		_spawn_boat()
 	if "--debug-gui" in OS.get_cmdline_user_args():
 		for i in 15:
