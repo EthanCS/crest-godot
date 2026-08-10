@@ -28,6 +28,7 @@ layout(push_constant, std430) uniform Params {
 	float height_offset;
 	float sea_level_offset;
 	float mode; // 0 = max (terrain), 1 = replace
+	float ocean_level;
 }
 pc;
 
@@ -50,11 +51,13 @@ void main() {
 	float h = textureLod(input_texture, uv_input, 0.0).x + pc.height_offset;
 
 	vec4 prev = imageLoad(depth_target, id);
-	if (pc.mode < 0.5) {
+	if (pc.mode > 1.5) {
+		prev.y = h - pc.ocean_level;
+	} else if (pc.mode < 0.5) {
 		prev.x = max(prev.x, h);
 	} else {
 		prev.x = h;
 	}
-	prev.y = pc.sea_level_offset;
+	if (pc.mode < 1.5) prev.y = pc.sea_level_offset;
 	imageStore(depth_target, id, prev);
 }

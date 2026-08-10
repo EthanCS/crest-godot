@@ -26,8 +26,6 @@ public partial class CrestAlbedoManagerCs : RefCounted
         }
     }
 
-    public Variant make_sampled_uniform(int binding) => Data.MakeSampledUniform((uint)binding);
-
     public void update_sim(GodotObject? lodTransform, Rid cascadeCurrent, Array inputs)
     {
         if (_device == null || _clear == null || !_clear.IsValid) return;
@@ -66,8 +64,12 @@ public partial class CrestAlbedoManagerCs : RefCounted
         var center = input.ContainsKey("rect_center") ? (Vector2)input["rect_center"] : Vector2.Zero;
         var half = input.ContainsKey("rect_half_size") ? (Vector2)input["rect_half_size"] : Vector2.One;
         var tint = input.ContainsKey("tint") ? (Color)input["tint"] : Colors.White;
+        // vec4 tint starts at a 16-byte boundary in the GLSL push-constant
+        // block, so two explicit float slots are required after rect_half_size.
         var values = new[] { (float)Data.Resolution, (float)Data.LayerCount, center.X, center.Y, half.X, half.Y,
-            tint.R, tint.G, tint.B, tint.A, texture != null ? 1.0f : 0.0f };
+            0.0f, 0.0f, tint.R, tint.G, tint.B, tint.A, texture != null ? 1.0f : 0.0f,
+            input.ContainsKey("blend_source") ? (float)input["blend_source"] : 5.0f,
+            input.ContainsKey("blend_target") ? (float)input["blend_target"] : 10.0f };
         _inject.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set }, CrestRDComputeCs.PackPushConstants(values));
         CrestRDComputeCs.FreeUniformSetDeferred(_device!, set);

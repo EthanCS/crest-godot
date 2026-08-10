@@ -1,5 +1,6 @@
 using Godot;
 using Godot.Collections;
+using System.Collections.Generic;
 
 namespace Crest.Godot;
 
@@ -15,6 +16,8 @@ public partial class CrestAnimatedWavesManagerCs : RefCounted
     private CrestRDComputeCs? _clear;
     private CrestRDComputeCs? _inject;
     private Rid _fallbackDynamicWaves;
+    private readonly System.Collections.Generic.Dictionary<ulong, Rid> _inputTextureCache = new();
+    private Rid _fallbackInputTexture;
 
     public void init_mgr(int resolution, int layers)
     {
@@ -35,12 +38,12 @@ public partial class CrestAnimatedWavesManagerCs : RefCounted
         _inject = CrestRDComputeCs.FromFile(_device, "res://addons/crest/shaders/sim/inject_anim_waves.glsl");
     }
 
-    public Variant make_sampled_uniform(int binding) => Data.MakeSampledUniform((uint)binding);
-    public Variant current_texture() => Data.CurrentTexture();
+    public Rid GetCurrentTexture() => Data.CurrentTexture();
 
-    public void update(Array shapes, GodotObject? depthManager, GodotObject? dynamicWavesManager,
-        GodotObject? lodTransform, Rid cascadeBuffer, double oceanScale, double oceanLevel,
-        double time, Resource? dynamicSettings, Array inputs)
+    public void update(IReadOnlyList<ICrestShapeGenerator> shapes,
+        CrestSeaFloorDepthManagerCs? depthManager, CrestDynamicWavesManagerCs? dynamicWavesManager,
+        CrestLodTransformCs lodTransform, Rid cascadeBuffer, double oceanScale, double oceanLevel,
+        double time, CrestSimSettingsWave? dynamicSettings, Array inputs)
     {
         if (_device == null || !wave_buffer.IsValid || _combine == null || !_combine.IsValid) return;
         if (shapes.Count == 0)
@@ -48,19 +51,19 @@ public partial class CrestAnimatedWavesManagerCs : RefCounted
         else
         {
             var first = true;
-            foreach (var value in shapes)
+            foreach (var shape in shapes)
             {
-                if (value.VariantType != Variant.Type.Object || value.AsGodotObject() is not GodotObject shape) continue;
-#pragma warning disable CS8604
-                shape.Call("evaluate", wave_buffer, depthManager, lodTransform, oceanScale, oceanLevel, time, !first);
-#pragma warning restore CS8604
+                shape.Evaluate(wave_buffer, depthManager, lodTransform, oceanScale, oceanLevel, time, !first);
                 first = false;
             }
         }
         foreach (var value in inputs)
-            if (value.VariantType == Variant.Type.Dictionary)
-                DispatchInput(cascadeBuffer, value.AsGodotDictionary());
+            if (value.VariantType == Variant.Type.Dictionary && InputWavelength(value.AsGodotDictionary()) != 0.0f)
+                DispatchInput(cascadeBuffer, value.AsGodotDictionary(), (float)oceanLevel, wave_buffer);
         DispatchCombine(cascadeBuffer, dynamicWavesManager, dynamicSettings);
+        foreach (var value in inputs)
+            if (value.VariantType == Variant.Type.Dictionary && InputWavelength(value.AsGodotDictionary()) == 0.0f)
+                DispatchInput(cascadeBuffer, value.AsGodotDictionary(), (float)oceanLevel, Data.CurrentTexture());
     }
 
     public void free_rids()
@@ -70,8 +73,12 @@ public partial class CrestAnimatedWavesManagerCs : RefCounted
         {
             if (wave_buffer.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, wave_buffer);
             if (_fallbackDynamicWaves.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, _fallbackDynamicWaves);
+            foreach (var rid in _inputTextureCache.Values)
+                if (rid.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, rid);
+            if (_fallbackInputTexture.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, _fallbackInputTexture);
         }
-        wave_buffer = new Rid(); _fallbackDynamicWaves = new Rid(); Data.FreeRids();
+        _inputTextureCache.Clear();
+        wave_buffer = new Rid(); _fallbackDynamicWaves = new Rid(); _fallbackInputTexture = new Rid(); Data.FreeRids();
     }
 
     private void ClearWaveBuffer()
@@ -85,32 +92,69 @@ public partial class CrestAnimatedWavesManagerCs : RefCounted
         CrestRDComputeCs.FreeUniformSetDeferred(_device!, set);
     }
 
-    private void DispatchInput(Rid cascadeBuffer, global::Godot.Collections.Dictionary input)
+    private void DispatchInput(Rid cascadeBuffer, global::Godot.Collections.Dictionary input, float oceanLevel, Rid target)
     {
         if (_inject == null || !_inject.IsValid) return;
+        var textureUniform = new RDUniform { UniformType = RenderingDevice.UniformType.SamplerWithTexture, Binding = 2 };
+        textureUniform.AddId(Data.Sampler); textureUniform.AddId(InputTextureRid(GetInputTexture(input)));
         var set = _inject.MakeUniformSet(new Array<RDUniform>
         {
-            StorageUniform(0, cascadeBuffer), ImageUniform(1, wave_buffer),
+            StorageUniform(0, cascadeBuffer), ImageUniform(1, target), textureUniform,
         });
         var center = input.ContainsKey("rect_center") ? (Vector2)input["rect_center"] : Vector2.Zero;
-        var values = new[] { (float)Data.Resolution, (float)Data.LayerCount, center.X, center.Y,
-            input.ContainsKey("radius") ? (float)input["radius"] : 3.0f,
+        var half = input.ContainsKey("rect_half_size") ? (Vector2)input["rect_half_size"] : Vector2.One;
+        var values = new[] { (float)Data.Resolution, (float)Data.LayerCount, center.X, center.Y, half.X, half.Y,
             input.ContainsKey("amplitude") ? (float)input["amplitude"] : 1.0f,
-            input.ContainsKey("blend_mode") ? (float)input["blend_mode"] : 0.0f, 0.1f };
+            input.ContainsKey("blend_mode") ? (float)input["blend_mode"] : 0.0f,
+            input.ContainsKey("heights_only") ? (float)input["heights_only"] : 1.0f, oceanLevel,
+            InputWavelength(input) };
         _inject.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set }, CrestRDComputeCs.PackPushConstants(values));
         CrestRDComputeCs.FreeUniformSetDeferred(_device!, set);
     }
 
-    private void DispatchCombine(Rid cascadeBuffer, GodotObject? dynamicManager, Resource? settings)
+    private static float InputWavelength(global::Godot.Collections.Dictionary input) =>
+        input.ContainsKey("wavelength") ? (float)input["wavelength"] : 0.0f;
+
+    private static Texture2D? GetInputTexture(global::Godot.Collections.Dictionary input)
+    {
+        if (!input.ContainsKey("texture")) return null;
+        var value = input["texture"];
+        return value.VariantType == Variant.Type.Object ? value.AsGodotObject() as Texture2D : null;
+    }
+
+    private Rid InputTextureRid(Texture2D? texture)
+    {
+        if (_device == null || texture == null) return FallbackInputTexture();
+        var key = texture.GetInstanceId();
+        if (_inputTextureCache.TryGetValue(key, out var cached)) return cached;
+        var image = texture.GetImage();
+        if (image == null || image.IsEmpty()) return FallbackInputTexture();
+        image.Convert(Image.Format.Rgbaf);
+        var format = new RDTextureFormat { Format = RenderingDevice.DataFormat.R32G32B32A32Sfloat,
+            Width = (uint)image.GetWidth(), Height = (uint)image.GetHeight(),
+            UsageBits = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.CanUpdateBit };
+        var rid = _device.TextureCreate(format, new RDTextureView(), new Array<byte[]> { image.GetData() });
+        _inputTextureCache[key] = rid; return rid;
+    }
+
+    private Rid FallbackInputTexture()
+    {
+        if (_device == null || _fallbackInputTexture.IsValid) return _fallbackInputTexture;
+        var format = new RDTextureFormat { Format = RenderingDevice.DataFormat.R32G32B32A32Sfloat,
+            Width = 1, Height = 1, UsageBits = RenderingDevice.TextureUsageBits.SamplingBit |
+                RenderingDevice.TextureUsageBits.CanUpdateBit };
+        _fallbackInputTexture = _device.TextureCreate(format, new RDTextureView(),
+            new Array<byte[]> { new byte[16] });
+        return _fallbackInputTexture;
+    }
+
+    private void DispatchCombine(Rid cascadeBuffer, CrestDynamicWavesManagerCs? dynamicManager,
+        CrestSimSettingsWave? settings)
     {
         var dynamicTexture = _fallbackDynamicWaves;
-        var dynamicEnabled = dynamicManager != null && dynamicManager.HasMethod("current_texture");
-        if (dynamicEnabled)
-        {
-            var value = dynamicManager!.Call("current_texture");
-            if (value.VariantType == Variant.Type.Rid) dynamicTexture = value.AsRid();
-        }
+        var dynamicEnabled = dynamicManager != null;
+        if (dynamicManager != null) dynamicTexture = dynamicManager.Data.CurrentTexture();
         var wave = new RDUniform { UniformType = RenderingDevice.UniformType.SamplerWithTexture, Binding = 1 };
         wave.AddId(Data.Sampler); wave.AddId(wave_buffer);
         var dyn = new RDUniform { UniformType = RenderingDevice.UniformType.SamplerWithTexture, Binding = 3 };
@@ -119,8 +163,8 @@ public partial class CrestAnimatedWavesManagerCs : RefCounted
         {
             StorageUniform(0, cascadeBuffer), wave, Data.MakeImageUniform(2, false), dyn,
         });
-        var horizontal = settings != null ? (float)settings.Get("horiz_displace") : 3.0f;
-        var clamp = settings != null ? (float)settings.Get("displace_clamp") : 0.3f;
+        var horizontal = settings?._horizDisplace ?? 3.0f;
+        var clamp = settings?._displaceClamp ?? 0.3f;
         var values = new[] { (float)Data.Resolution, (float)Data.LayerCount, horizontal, clamp, dynamicEnabled ? 1.0f : 0.0f };
         _combine.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set }, CrestRDComputeCs.PackPushConstants(values));

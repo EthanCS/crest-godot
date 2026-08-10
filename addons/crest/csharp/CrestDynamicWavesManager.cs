@@ -15,6 +15,7 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
     private RenderingDevice? _device;
     private CrestRDComputeCs? _update;
     private CrestRDComputeCs? _inject;
+    private CrestRDComputeCs? _injectBump;
     private CrestLodDataMgrCs? _fallback;
     private Rid _sphereBuffer;
     private float _timeToSimulate;
@@ -28,21 +29,22 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
         {
             _update = CrestRDComputeCs.FromFile(_device, "res://addons/crest/shaders/sim/update_dyn_waves.glsl");
             _inject = CrestRDComputeCs.FromFile(_device, "res://addons/crest/shaders/sim/inject_dyn_waves.glsl");
+            _injectBump = CrestRDComputeCs.FromFile(_device, "res://addons/crest/shaders/sim/inject_dyn_waves_bump.glsl");
             _sphereBuffer = _device.StorageBufferCreate(MaxSpheres * 32u);
             _fallback = new CrestLodDataMgrCs();
             _fallback.InitSim(1, 2, RenderingDevice.DataFormat.R16G16Sfloat, false);
         }
     }
 
-    public Variant make_sampled_uniform(int binding) => Data.MakeSampledUniform((uint)binding);
-    public Variant current_texture() => Data.CurrentTexture();
+    public Rid GetCurrentTexture() => Data.CurrentTexture();
 
-    public void update_sim(double delta, GodotObject? lodTransform, Rid cascadeCurrent,
-        Rid cascadeSource, GodotObject? flowManager, GodotObject? depthManager,
-        double oceanLevel, double gravity, double lodChange, Array spheres)
+    public void update_sim(double delta, CrestLodTransformCs lodTransform, Rid cascadeCurrent,
+        Rid cascadeSource, CrestFlowManagerCs? flowManager, CrestSeaFloorDepthManagerCs? depthManager,
+        double oceanLevel, double gravity, double lodChange, Array? rendererInputs = null)
     {
+        _ = lodTransform;
         if (_device == null || _update == null || !_update.IsValid) return;
-        var frequency = Mathf.Max(Settings.simulation_frequency, 1.0f);
+        var frequency = Mathf.Max(Settings._simulationFrequency, 1.0f);
         _timeToSimulate += (float)delta;
         var count = Mathf.FloorToInt(_timeToSimulate * frequency);
         var dt = 1.0f / frequency;
@@ -53,38 +55,66 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
             DispatchUpdate(dt, cascadeCurrent, cascadeSource, flowManager, depthManager,
                 (float)oceanLevel, (float)gravity, (float)lodChange, i == 0);
             Data.SwapTargets();
-            if (dt > 0.0f && (spheres.Count > 0 || CrestSphereWaterInteraction.ActiveInteractions.Count > 0))
-                DispatchSpheres(dt, cascadeCurrent, spheres);
+            if (dt > 0.0f && CrestSphereWaterInteraction.ActiveInteractions.Count > 0)
+                DispatchSpheres(dt, cascadeCurrent);
+            if (dt > 0.0f && rendererInputs != null && rendererInputs.Count > 0)
+                DispatchBumps(dt, count, cascadeCurrent, rendererInputs);
         }
     }
 
     public void free_rids()
     {
-        _update?.DisposeRid(); _inject?.DisposeRid();
+        _update?.DisposeRid(); _inject?.DisposeRid(); _injectBump?.DisposeRid();
         if (_device != null && _sphereBuffer.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, _sphereBuffer);
         _sphereBuffer = new Rid(); _fallback?.FreeRids(); _fallback = null; Data.FreeRids();
     }
 
-    private void DispatchUpdate(float dt, Rid current, Rid source, GodotObject? flow, GodotObject? depth,
+    private void DispatchBumps(float dt, int simulationCount, Rid cascadeCurrent, Array inputs)
+    {
+        if (_injectBump == null || !_injectBump.IsValid) return;
+        foreach (var value in inputs)
+        {
+            if (value.VariantType != Variant.Type.Dictionary) continue;
+            var input = value.AsGodotDictionary();
+            var center = input.ContainsKey("rect_center") ? (Vector2)input["rect_center"] : Vector2.Zero;
+            var half = input.ContainsKey("rect_half_size") ? (Vector2)input["rect_half_size"] : Vector2.One;
+            var set = _injectBump.MakeUniformSet(new Array<RDUniform>
+            {
+                StorageUniform(0, cascadeCurrent), Data.MakeImageUniform(1, false),
+            });
+            var push = new[] { (float)Data.Resolution, (float)Data.LayerCount, center.X, center.Y,
+                half.X, half.Y, input.ContainsKey("amplitude") ? (float)input["amplitude"] : 1.0f,
+                dt, (float)simulationCount };
+            _injectBump.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
+                new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set },
+                CrestRDComputeCs.PackPushConstants(push));
+            CrestRDComputeCs.FreeUniformSetDeferred(_device!, set);
+        }
+    }
+
+    private void DispatchUpdate(float dt, Rid current, Rid source, CrestFlowManagerCs? flow,
+        CrestSeaFloorDepthManagerCs? depth,
         float oceanLevel, float gravity, float lodChange, bool useSource)
     {
         var set = _update!.MakeUniformSet(new Array<RDUniform>
         {
             StorageUniform(0, current), StorageUniform(1, source), Data.MakeSampledUniform(2),
-            Data.MakeImageUniform(3), SampledFromManager(flow, 4), SampledFromManager(depth, 5),
+            Data.MakeImageUniform(3),
+            flow?.Data.MakeSampledUniform(4) ?? _fallback!.MakeSampledUniform(4),
+            depth?.Data.MakeSampledUniform(5) ?? _fallback!.MakeSampledUniform(5),
         });
         var push = new[] { (float)Data.Resolution, (float)Data.LayerCount, dt,
-            gravity * Settings.gravity_multiplier, Settings.damping, Settings.courant_number,
-            Settings.attenuation_in_shallows, lodChange, oceanLevel, useSource ? 1.0f : 0.0f };
+            gravity * Settings._gravityMultiplier, Settings._damping, Settings._courantNumber,
+            Settings._attenuationInShallows, lodChange, oceanLevel, useSource ? 1.0f : 0.0f };
         _update.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set }, CrestRDComputeCs.PackPushConstants(push));
         CrestRDComputeCs.FreeUniformSetDeferred(_device!, set);
     }
 
-    private void DispatchSpheres(float dt, Rid cascadeCurrent, Array spheres)
+    private void DispatchSpheres(float dt, Rid cascadeCurrent)
     {
         if (_inject == null || !_inject.IsValid) return;
-        var capacity = Mathf.Min(spheres.Count + CrestSphereWaterInteraction.ActiveInteractions.Count, MaxSpheres);
+        var capacity = Mathf.Min(CrestSphereWaterInteraction.ActiveInteractions.Count, MaxSpheres);
         var values = new float[capacity * 8];
         var count = 0;
         foreach (var sphere in CrestSphereWaterInteraction.ActiveInteractions)
@@ -92,16 +122,6 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
             if (count >= MaxSpheres || !sphere.TryGetInjection(out var position, out var velocity,
                 out var radius, out var weight)) continue;
             WriteSphere(values, count++, position, velocity, radius, weight);
-        }
-        foreach (var value in spheres)
-        {
-            if (count >= MaxSpheres || value.VariantType != Variant.Type.Dictionary) break;
-            var sphere = value.AsGodotDictionary();
-            if (!sphere.ContainsKey("pos") || !sphere.ContainsKey("vel")) continue;
-            var position = (Vector2)sphere["pos"]; var velocity = (Vector3)sphere["vel"];
-            WriteSphere(values, count++, position, velocity,
-                sphere.ContainsKey("radius") ? (float)sphere["radius"] : 1.0f,
-                sphere.ContainsKey("weight") ? (float)sphere["weight"] : 1.0f);
         }
         if (count == 0) return;
         _device!.BufferUpdate(_sphereBuffer, 0, (uint)(count * 32), FloatsToBytes(values, count * 8));
@@ -116,15 +136,6 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
         CrestRDComputeCs.FreeUniformSetDeferred(_device, set);
     }
 
-    private RDUniform SampledFromManager(GodotObject? manager, uint binding)
-    {
-        if (manager != null && manager.HasMethod("make_sampled_uniform"))
-        {
-            var result = manager.Call("make_sampled_uniform", (int)binding);
-            if (result.VariantType == Variant.Type.Object && result.AsGodotObject() is RDUniform uniform) return uniform;
-        }
-        return _fallback!.MakeSampledUniform(binding);
-    }
     private uint Groups() => (uint)Mathf.CeilToInt(Data.Resolution / 8.0f);
     private static RDUniform StorageUniform(uint binding, Rid rid)
     {

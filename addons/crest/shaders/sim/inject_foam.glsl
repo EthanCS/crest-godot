@@ -23,7 +23,7 @@ layout(push_constant, std430) uniform Params {
 	vec2 rect_center;
 	vec2 rect_half_size;
 	float strength;
-	float mode; // 0 = texture patch, 1 = sphere patch
+	float mode; // 0 = additive Renderer, 1 = override Renderer
 	float use_texture;
 	float time;
 }
@@ -45,22 +45,9 @@ void main() {
 		return;
 	}
 
-	float value;
-	if (pc.mode < 0.5) {
-		// Texture patch: add tex.r * strength (Crest: FoamAddFromTex).
-		float tex = pc.use_texture > 0.5 ? textureLod(input_texture, uv_input, 0.0).x : 1.0;
-		value = tex * pc.strength;
-	} else {
-		// Sphere patch: smooth radial falloff.
-		vec2 rel = (uv_input - 0.5) * 2.0;
-		float r2 = dot(rel, rel);
-		value = pc.strength * max(0.0, 1.0 - r2);
-		value *= value;
-	}
-
-	// Feather at the input rect border.
-	float feather = clamp(min(min(uv_input.x, 1.0 - uv_input.x), min(uv_input.y, 1.0 - uv_input.y)) / 0.1, 0.0, 1.0);
+	float coverage = pc.use_texture > 0.5 ? textureLod(input_texture, uv_input, 0.0).x : 1.0;
 	vec4 prev = imageLoad(foam_target, id);
-	prev.x = clamp(prev.x + value * feather, 0.0, 1.0);
+	if (pc.mode < 0.5) prev.x += coverage * pc.strength;
+	else prev.x = mix(prev.x, pc.strength, clamp(coverage, 0.0, 1.0));
 	imageStore(foam_target, id, prev);
 }

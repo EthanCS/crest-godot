@@ -10,89 +10,118 @@ public partial class CrestOceanRendererFacade : Node3D
 {
     public static CrestOceanRendererFacade? Instance { get; private set; }
     public float OceanLevel => GlobalPosition.Y;
-    public double CurrentTime => (CrestTimeProviderCs.GlobalProvider ?? _timeProvider)?.CurrentTime() ?? 0.0;
+    public double CurrentTime => (CrestTimeProviderCs.GlobalProvider ?? _runtimeTimeProvider)?.CurrentTime() ?? 0.0;
     public IReadOnlyList<CrestOceanChunkRendererCs> Chunks => _chunks;
     public int SphereDispatchCount => _dynamicWavesManager?.SphereDispatchCount ?? 0;
-    public float DynamicWaveDamping => _dynamicWavesManager?.Settings.damping ?? 0.0f;
-    private int _lodCount = 7;
-    private int _lodDataResolution = 256;
-    private int _geometryDownSampleFactor = 2;
-    private float _extentsSizeMultiplier = 100.0f;
-    private bool _createFoamSim = true;
-    private bool _createDynamicWaveSim = true;
-    private bool _createSeaFloorDepthData = true;
-    private bool _createFlowSim;
-    private bool _createShadowSim;
-    private bool _createClipSurfaceData;
-    private bool _createAlbedoData;
+    public float DynamicWaveDamping => _dynamicWavesManager?.Settings._damping ?? 0.0f;
+    private int _lodCountValue = 7;
+    private int _lodDataResolutionValue = 384;
+    private int _geometryDownSampleFactorValue = 2;
+    private float _extentsSizeMultiplierValue = 100.0f;
+    private bool _createFoamSimValue = true;
+    private bool _createDynamicWaveSimValue;
+    private bool _createSeaFloorDepthDataValue = true;
+    private bool _createFlowSimValue;
+    private bool _createShadowDataValue;
+    private bool _createClipSurfaceDataValue;
+    private bool _createAlbedoDataValue;
     private bool _rebuildQueued;
-    [Export(PropertyHint.Range, "2,15,1")] public int lod_count
+    [Export] public int _version { get; set; }
+    [Export] public Node3D? _globalWindZone { get; set; }
+    [Export(PropertyHint.Range, "0,150,0.1")] public float _globalWindSpeed { get; set; } = 150.0f;
+    [Export(PropertyHint.Range, "-180,180,0.1")] public float _globalWindDirectionAngle { get; set; }
+    [Export(PropertyHint.Range, "0,1,0.001")] public float _globalWindTurbulence { get; set; } = 0.145f;
+    [Export] public Node3D? _viewpoint { get; set; }
+    [Export] public Camera3D? _camera { get; set; }
+    [Export] public float _teleportThreshold { get; set; } = 10.0f;
+    [Export] public Node? _timeProvider { get; set; }
+    [Export] public DirectionalLight3D? _primaryLight { get; set; }
+    [Export] public bool _searchForPrimaryLightOnStartup { get; set; } = true;
+    [Export] public ShaderMaterial? _material { get; set; }
+    [Export] public PackedScene? _waterTilePrefab { get; set; }
+    [Export] public string _layerName { get; set; } = "";
+    [Export] public int _layer { get; set; } = 4;
+    [Export] public bool _overrideGravity { get; set; }
+    [Export] public float _gravity { get; set; } = -9.8f;
+    [Export(PropertyHint.Range, "0,10,0.01")] public float _gravityMultiplier { get; set; } = 1.0f;
+    [Export] public bool _waterBodyCulling { get; set; } = true;
+    [Export(PropertyHint.Range, "2,15,1")] public int _lodCount
     {
-        get => _lodCount;
-        set { value = Mathf.Clamp(value, 2, CrestConstantsCs.MaxLodCount); if (_lodCount != value) { _lodCount = value; RequestRebuild(); } }
+        get => _lodCountValue;
+        set { value = Mathf.Clamp(value, 2, CrestConstantsCs.MaxLodCount); if (_lodCountValue != value) { _lodCountValue = value; RequestRebuild(); } }
     }
-    [Export] public int lod_data_resolution
+    [Export] public int _lodDataResolution
     {
-        get => _lodDataResolution;
-        set { value = Mathf.Max(16, value - value % 16); if (_lodDataResolution != value) { _lodDataResolution = value; RequestRebuild(); } }
+        get => _lodDataResolutionValue;
+        set { value = Mathf.Max(128, value - value % 128); if (_lodDataResolutionValue != value) { _lodDataResolutionValue = value; RequestRebuild(); } }
     }
-    [Export] public int geometry_down_sample_factor
+    [Export] public int _geometryDownSampleFactor
     {
-        get => _geometryDownSampleFactor;
-        set { value = Mathf.Max(1, value); if (_geometryDownSampleFactor != value) { _geometryDownSampleFactor = value; RequestRebuild(); } }
+        get => _geometryDownSampleFactorValue;
+        set { value = Mathf.Max(1, value); if (_geometryDownSampleFactorValue != value) { _geometryDownSampleFactorValue = value; RequestRebuild(); } }
     }
-    [Export] public float extents_size_multiplier
+    [Export] public float _extentsSizeMultiplier
     {
-        get => _extentsSizeMultiplier;
-        set { if (!Mathf.IsEqualApprox(_extentsSizeMultiplier, value)) { _extentsSizeMultiplier = value; RequestRebuild(); } }
+        get => _extentsSizeMultiplierValue;
+        set { if (!Mathf.IsEqualApprox(_extentsSizeMultiplierValue, value)) { _extentsSizeMultiplierValue = value; RequestRebuild(); } }
     }
-    [Export] public float min_scale { get; set; } = 8.0f;
-    [Export] public float max_scale { get; set; } = 256.0f;
-    [Export] public float gravity { get; set; } = 9.81f;
-    [Export] public bool drop_detail_height_based_on_waves { get; set; } = true;
-    [Export] public bool create_foam_sim
+    [Export] public float _minScale { get; set; } = 8.0f;
+    [Export] public float _maxScale { get; set; } = 256.0f;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _dropDetailHeightBasedOnWaves { get; set; } = 0.2f;
+    [Export] public bool _createFoamSim
     {
-        get => _createFoamSim; set { if (_createFoamSim != value) { _createFoamSim = value; RequestRebuild(); } }
+        get => _createFoamSimValue; set { if (_createFoamSimValue != value) { _createFoamSimValue = value; RequestRebuild(); } }
     }
-    [Export] public bool create_dynamic_wave_sim
+    [Export] public bool _createDynamicWaveSim
     {
-        get => _createDynamicWaveSim; set { if (_createDynamicWaveSim != value) { _createDynamicWaveSim = value; RequestRebuild(); } }
+        get => _createDynamicWaveSimValue; set { if (_createDynamicWaveSimValue != value) { _createDynamicWaveSimValue = value; RequestRebuild(); } }
     }
-    [Export] public bool create_sea_floor_depth_data
+    [Export] public bool _createSeaFloorDepthData
     {
-        get => _createSeaFloorDepthData; set { if (_createSeaFloorDepthData != value) { _createSeaFloorDepthData = value; RequestRebuild(); } }
+        get => _createSeaFloorDepthDataValue; set { if (_createSeaFloorDepthDataValue != value) { _createSeaFloorDepthDataValue = value; RequestRebuild(); } }
     }
-    [Export] public bool create_flow_sim
+    [Export] public bool _createFlowSim
     {
-        get => _createFlowSim; set { if (_createFlowSim != value) { _createFlowSim = value; RequestRebuild(); } }
+        get => _createFlowSimValue; set { if (_createFlowSimValue != value) { _createFlowSimValue = value; RequestRebuild(); } }
     }
-    [Export] public bool create_shadow_sim
+    [Export] public bool _createShadowData
     {
-        get => _createShadowSim; set { if (_createShadowSim != value) { _createShadowSim = value; RequestRebuild(); } }
+        get => _createShadowDataValue; set { if (_createShadowDataValue != value) { _createShadowDataValue = value; RequestRebuild(); } }
     }
-    [Export] public bool create_clip_surface_data
+    [Export] public bool _createClipSurfaceData
     {
-        get => _createClipSurfaceData; set { if (_createClipSurfaceData != value) { _createClipSurfaceData = value; RequestRebuild(); } }
+        get => _createClipSurfaceDataValue; set { if (_createClipSurfaceDataValue != value) { _createClipSurfaceDataValue = value; RequestRebuild(); } }
     }
-    [Export] public bool create_albedo_data
+    [Export] public bool _createAlbedoData
     {
-        get => _createAlbedoData; set { if (_createAlbedoData != value) { _createAlbedoData = value; RequestRebuild(); } }
+        get => _createAlbedoDataValue; set { if (_createAlbedoDataValue != value) { _createAlbedoDataValue = value; RequestRebuild(); } }
     }
-    [Export] public Resource? sim_settings_wave { get; set; }
-    [Export] public CrestSimSettingsFoam? sim_settings_foam { get; set; }
-    [Export] public CrestSimSettingsFlow? sim_settings_flow { get; set; }
-    [Export] public CrestSimSettingsShadow? sim_settings_shadow { get; set; }
-    [Export] public CrestSimSettingsClipSurface? sim_settings_clip_surface { get; set; }
-    [Export] public CrestSimSettingsAlbedo? sim_settings_albedo { get; set; }
-    [Export] public ShaderMaterial? ocean_material { get; set; }
-    [Export] public Node3D? viewpoint { get; set; }
-    [Export] public bool use_custom_time { get; set; }
-    [Export] public double custom_time { get; set; }
-    [Export] public double time_scale { get; set; } = 1.0;
-    [Export] public bool paused { get; set; }
+    [Export] public CrestSimSettingsAnimatedWaves? _simSettingsAnimatedWaves { get; set; }
+    [Export] public CrestSimSettingsSeaFloorDepth? _simSettingsSeaFloorDepth { get; set; }
+    [Export] public CrestSimSettingsFoam? _simSettingsFoam { get; set; }
+    [Export] public CrestSimSettingsWave? _simSettingsDynamicWaves { get; set; }
+    [Export] public CrestSimSettingsFlow? _simSettingsFlow { get; set; }
+    [Export] public CrestSimSettingsShadow? _simSettingsShadow { get; set; }
+    [Export] public CrestSimSettingsClipSurface? _simSettingsClipSurface { get; set; }
+    [Export] public int _defaultClippingState { get; set; }
+    [Export] public CrestSimSettingsAlbedo? _settingsAlbedo { get; set; }
+    [Export] public int _surfaceSelfIntersectionFixMode { get; set; } = 2;
+    [Export(PropertyHint.Range, "0.000001,0.01,0.000001")] public float _underwaterCullLimit { get; set; } = 0.001f;
+    [Export] public bool _fixFlickeringParticleInput { get; set; }
+    [Export] public bool _enableRenderQueueSorting { get; set; }
+    [Export] public bool _showOceanProxyPlane { get; set; }
+    [Export(PropertyHint.Range, "0,60,1")] public float _editModeFPS { get; set; } = 30.0f;
+    [Export] public bool _followSceneCamera { get; set; } = true;
+    [Export] public bool _heightQueries { get; set; } = true;
+    [Export] public CrestOceanDebugFields _debug { get; set; } = new();
+
+    public bool UseCustomTime { get; set; }
+    public double CustomTime { get; set; }
+    public double TimeScale { get; set; } = 1.0;
+    public bool Paused { get; set; }
 
     private CrestOceanRendererBackend? _backend;
-    private CrestTimeProviderCs? _timeProvider;
+    private CrestTimeProviderCs? _runtimeTimeProvider;
     private CrestFoamSimulationManagerCs? _foamManager;
     private CrestSeaFloorDepthManagerCs? _depthManager;
     private CrestFlowManagerCs? _flowManager;
@@ -113,16 +142,16 @@ public partial class CrestOceanRendererFacade : Node3D
 
     private void BuildFacade()
     {
-        var enableFlow = create_flow_sim || OS.GetEnvironment("CREST_FORCE_FLOW") == "1";
-        var enableClip = create_clip_surface_data || OS.GetEnvironment("CREST_FORCE_CLIP") == "1";
-        var enableAlbedo = create_albedo_data || OS.GetEnvironment("CREST_FORCE_ALBEDO") == "1";
-        var enableShadow = create_shadow_sim || OS.GetEnvironment("CREST_FORCE_SHADOW") == "1";
-        _timeProvider = new CrestTimeProviderCs
+        var enableFlow = _createFlowSim || OS.GetEnvironment("CREST_FORCE_FLOW") == "1";
+        var enableClip = _createClipSurfaceData || OS.GetEnvironment("CREST_FORCE_CLIP") == "1";
+        var enableAlbedo = _createAlbedoData || OS.GetEnvironment("CREST_FORCE_ALBEDO") == "1";
+        var enableShadow = _createShadowData || OS.GetEnvironment("CREST_FORCE_SHADOW") == "1";
+        _runtimeTimeProvider = new CrestTimeProviderCs
         {
-            UseCustomTime = use_custom_time,
-            CustomTime = custom_time,
-            TimeScale = time_scale,
-            Paused = paused,
+            UseCustomTime = UseCustomTime,
+            CustomTime = CustomTime,
+            TimeScale = TimeScale,
+            Paused = Paused,
         };
         var scene = GD.Load<PackedScene>("res://addons/crest/core/ocean_backend.tscn");
         if (scene == null)
@@ -131,28 +160,28 @@ public partial class CrestOceanRendererFacade : Node3D
             return;
         }
         _backend = scene.Instantiate<CrestOceanRendererBackend>();
-        _backend.LodCount = lod_count;
-        _backend.LodDataResolution = lod_data_resolution;
-        _backend.GeometryDownSampleFactor = geometry_down_sample_factor;
-        _backend.MinScale = min_scale;
-        _backend.MaxScale = max_scale;
-        _backend.Gravity = gravity;
-        _backend.DropDetailHeightBasedOnWaves = drop_detail_height_based_on_waves;
-        _backend.CreateFoamSim = create_foam_sim;
-        _backend.CreateDynamicWaveSim = create_dynamic_wave_sim;
-        _backend.CreateSeaFloorDepthData = create_sea_floor_depth_data;
+        _backend.LodCount = _lodCount;
+        _backend.LodDataResolution = _lodDataResolution;
+        _backend.GeometryDownSampleFactor = _geometryDownSampleFactor;
+        _backend.MinScale = _minScale;
+        _backend.MaxScale = _maxScale;
+        _backend.Gravity = _gravityMultiplier * Mathf.Abs(_overrideGravity ? _gravity : CrestConstantsCs.Gravity);
+        _backend.DropDetailHeightBasedOnWaves = _dropDetailHeightBasedOnWaves > 0.0f;
+        _backend.CreateFoamSim = _createFoamSim;
+        _backend.CreateDynamicWaveSim = _createDynamicWaveSim;
+        _backend.CreateSeaFloorDepthData = _createSeaFloorDepthData;
         _backend.CreateFlowSim = enableFlow;
         _backend.CreateShadowSim = enableShadow;
         _backend.CreateClipSurfaceData = enableClip;
         _backend.CreateAlbedoData = enableAlbedo;
-        _backend.Viewpoint = viewpoint;
-        _backend.SimSettingsWave = sim_settings_wave;
-        _backend.SimSettingsFoam = sim_settings_foam;
-        _backend.SimSettingsFlow = sim_settings_flow;
-        _backend.SimSettingsShadow = sim_settings_shadow;
-        _backend.SimSettingsClipSurface = sim_settings_clip_surface;
-        _backend.SimSettingsAlbedo = sim_settings_albedo;
-        if (ocean_material == null)
+        _backend.Viewpoint = _viewpoint;
+        _backend.SimSettingsWave = _simSettingsDynamicWaves;
+        _backend.SimSettingsFoam = _simSettingsFoam;
+        _backend.SimSettingsFlow = _simSettingsFlow;
+        _backend.SimSettingsShadow = _simSettingsShadow;
+        _backend.SimSettingsClipSurface = _simSettingsClipSurface;
+        _backend.SimSettingsAlbedo = _settingsAlbedo;
+        if (_material == null)
         {
             var shader = GD.Load<Shader>("res://addons/crest/shaders/ocean.gdshader");
             if (shader == null)
@@ -160,22 +189,22 @@ public partial class CrestOceanRendererFacade : Node3D
                 GD.PushError("CrestOceanRendererFacade: ocean.gdshader not found.");
                 return;
             }
-            ocean_material = new ShaderMaterial { Shader = shader };
+            _material = new ShaderMaterial { Shader = shader };
         }
-        _backend.OceanMaterial = ocean_material;
-        if (create_foam_sim)
+        _backend.OceanMaterial = _material;
+        if (_createFoamSim)
         {
             _foamManager = new CrestFoamSimulationManagerCs();
             _backend.Foam = _foamManager;
         }
         _animatedWavesManager = new CrestAnimatedWavesManagerCs();
         _backend.AnimatedWaves = _animatedWavesManager;
-        if (create_dynamic_wave_sim)
+        if (_createDynamicWaveSim)
         {
             _dynamicWavesManager = new CrestDynamicWavesManagerCs();
             _backend.DynamicWaves = _dynamicWavesManager;
         }
-        if (create_sea_floor_depth_data)
+        if (_createSeaFloorDepthData)
         {
             _depthManager = new CrestSeaFloorDepthManagerCs();
             _backend.Depth = _depthManager;
@@ -201,22 +230,22 @@ public partial class CrestOceanRendererFacade : Node3D
             _backend.Shadow = _shadowManager;
         }
 
-        var tileResolution = CrestOceanBuilderCs.GetTileResolution(lod_data_resolution, geometry_down_sample_factor);
-        var extents = extents_size_multiplier * (CrestConstantsCs.MaxLodCount + 1 - lod_count);
+        var tileResolution = CrestOceanBuilderCs.GetTileResolution(_lodDataResolution, _geometryDownSampleFactor);
+        var extents = _extentsSizeMultiplier * (CrestConstantsCs.MaxLodCount + 1 - _lodCount);
         var meshesArray = CrestOceanBuilderCs.BuildPatchMeshes(tileResolution, extents);
         var generatedMeshes = new global::Godot.Collections.Array();
         foreach (var mesh in meshesArray)
             generatedMeshes.Add(mesh);
         _backend.PatchMeshes = generatedMeshes;
 
-        if (ocean_material != null)
+        if (_material != null)
         {
             var tilesRoot = new Node3D { Name = "CrestTiles" };
             var generatedChunks = new global::Godot.Collections.Array();
-            for (var lod = 0; lod < lod_count; lod++)
+            for (var lod = 0; lod < _lodCount; lod++)
             {
-                foreach (var chunk in CrestOceanBuilderCs.CreateLodChunks(tilesRoot, lod, lod_count,
-                    meshesArray, ocean_material, extents))
+                foreach (var chunk in CrestOceanBuilderCs.CreateLodChunks(tilesRoot, lod, _lodCount,
+                    meshesArray, _material, extents))
                 {
                     chunk.ExpandBounds(30.0f, 30.0f);
                     _chunks.Add(chunk);
@@ -251,24 +280,22 @@ public partial class CrestOceanRendererFacade : Node3D
         }
         if (_backend != null)
         {
-            _timeProvider!.UseCustomTime = use_custom_time;
-            _timeProvider.CustomTime = custom_time;
-            _timeProvider.TimeScale = time_scale;
-            _timeProvider.Paused = paused;
-            var provider = CrestTimeProviderCs.GlobalProvider ?? _timeProvider;
+            _runtimeTimeProvider!.UseCustomTime = UseCustomTime;
+            _runtimeTimeProvider.CustomTime = CustomTime;
+            _runtimeTimeProvider.TimeScale = TimeScale;
+            _runtimeTimeProvider.Paused = Paused;
+            var provider = CrestTimeProviderCs.GlobalProvider ?? _runtimeTimeProvider;
             provider.Advance(delta);
             _backend.ExternalTime = provider.CurrentTime();
             _backend.RunFrame(delta);
         }
     }
 
-    public float get_ocean_scale() => _backend?.OceanScale ?? min_scale;
-    public float get_viewer_altitude_level_alpha() => _backend?.ViewerAltitudeLevelAlpha ?? 0.0f;
-    public double get_current_time() => CurrentTime;
+    public float GetOceanScale() => _backend?.OceanScale ?? _minScale;
+    public float GetViewerAltitudeLevelAlpha() => _backend?.ViewerAltitudeLevelAlpha ?? 0.0f;
+    public double GetCurrentTime() => CurrentTime;
     public Rid CascadeBufferCurrent => _backend?.CascadeBufferCurrent ?? new Rid();
     public Rid CascadeBufferSource => _backend?.CascadeBufferSource ?? new Rid();
-    public Rid cascade_buffer_current() => CascadeBufferCurrent;
-    public Rid cascade_buffer_source() => CascadeBufferSource;
 
     public void SetPlanarReflection(Texture2D? texture, float intensity)
     {
@@ -342,4 +369,15 @@ public partial class CrestOceanRendererFacade : Node3D
         System.GC.WaitForPendingFinalizers();
         System.GC.Collect();
     }
+}
+
+[GlobalClass]
+public partial class CrestOceanDebugFields : Resource
+{
+    [Export] public bool _attachDebugGUI { get; set; }
+    [Export] public bool _showOceanTileGameObjects { get; set; }
+    [Export] public bool _disableFollowViewpoint { get; set; }
+    [Export] public bool _destroyResourcesInOnDisable { get; set; }
+    [Export] public bool _forceBatchMode { get; set; }
+    [Export] public bool _forceNoGPU { get; set; }
 }

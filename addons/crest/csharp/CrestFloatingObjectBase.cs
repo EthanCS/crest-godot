@@ -5,7 +5,7 @@ namespace Crest.Godot;
 [Tool, GlobalClass]
 public partial class CrestFloatingObjectBase : Node3D
 {
-    [Export] public float object_width { get; set; } = 3.0f;
+    public float ObjectWidth { get; set; } = 3.0f;
     protected bool InWaterState { get; set; }
 
     public virtual bool in_water() => InWaterState;

@@ -17,6 +17,7 @@ cascades;
 
 layout(set = 0, binding = 1) uniform sampler2D input_texture;
 layout(r8, set = 0, binding = 2) uniform image2DArray clip_target;
+layout(set = 0, binding = 3) uniform sampler2DArray animated_waves;
 
 layout(push_constant, std430) uniform Params {
 	float texture_res;
@@ -25,6 +26,13 @@ layout(push_constant, std430) uniform Params {
 	vec2 rect_half_size;
 	float mode; // 0 = clip (write 0), 1 = un-clip (write 1)
 	float use_texture;
+	float primitive; // -1 = renderer geometry, 0 = sphere, 3 = cube
+	float displacement_iterations;
+	float ocean_level;
+	float _padding;
+	vec4 inverse_row_0;
+	vec4 inverse_row_1;
+	vec4 inverse_row_2;
 }
 pc;
 
@@ -45,7 +53,19 @@ void main() {
 	}
 
 	float coverage = 1.0;
-	if (pc.use_texture > 0.5) {
+	if (pc.primitive >= -0.5) {
+		vec2 undisplaced = world_pos;
+		vec3 displacement = vec3(0.0);
+		for (int iteration = 0; iteration < int(pc.displacement_iterations); iteration++) {
+			vec2 wave_uv = crest_world_to_uv(undisplaced, cascade);
+			displacement = textureLod(animated_waves, vec3(wave_uv, float(lod)), 0.0).xyz;
+			undisplaced = world_pos - displacement.xz;
+		}
+		vec4 world = vec4(world_pos.x, pc.ocean_level + displacement.y, world_pos.y, 1.0);
+		vec3 local = vec3(dot(pc.inverse_row_0, world), dot(pc.inverse_row_1, world), dot(pc.inverse_row_2, world));
+		coverage = pc.primitive < 1.5 ? float(length(local) <= 0.5) :
+			float(max(abs(local.x), max(abs(local.y), abs(local.z))) <= 0.5);
+	} else if (pc.use_texture > 0.5) {
 		coverage = textureLod(input_texture, uv_input, 0.0).x;
 	}
 	if (coverage < 0.5) {

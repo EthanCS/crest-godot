@@ -9,41 +9,46 @@ namespace Crest.Godot;
 public partial class CrestOceanPlanarReflection : Node3D
 {
     public Texture2D? ReflectionTexture => _outputViewport?.GetTexture();
-    private Vector2I _reflectionTextureSize = new(512, 512);
-    private int _refreshPerFrames = 1;
-    private uint _cullMask = 1;
+    private int _textureSizeValue = 256;
+    private int _refreshPerFramesValue = 1;
+    private uint _reflectionLayersValue = 1;
 
-    [Export]
-    public Vector2I reflection_texture_size
-    {
-        get => _reflectionTextureSize;
-        set
-        {
-            _reflectionTextureSize = new Vector2I(Mathf.Max(16, value.X), Mathf.Max(16, value.Y));
-            ApplySize();
-        }
-    }
-
-    [Export(PropertyHint.Range, "1,60,1")]
-    public int refresh_per_frames
-    {
-        get => _refreshPerFrames;
-        set => _refreshPerFrames = Mathf.Max(1, value);
-    }
-
+    [Export] public int _version { get; set; }
     [Export(PropertyHint.Layers3DRender)]
-    public uint cull_mask
+    public uint _reflectionLayers
     {
-        get => _cullMask;
+        get => _reflectionLayersValue;
         set
         {
-            _cullMask = value;
+            _reflectionLayersValue = value;
             if (_camera != null) _camera.CullMask = value;
         }
     }
-
-    [Export] public float clip_plane_offset { get; set; } = 0.07f;
-    [Export(PropertyHint.Range, "0,1,0.01")] public float intensity { get; set; } = 1.0f;
+    [Export] public bool _disableOcclusionCulling { get; set; } = true;
+    [Export] public bool _disablePixelLights { get; set; } = true;
+    [Export] public bool _disableShadows { get; set; }
+    [Export]
+    public int _textureSize
+    {
+        get => _textureSizeValue;
+        set { _textureSizeValue = Mathf.Max(16, value); ApplySize(); }
+    }
+    [Export] public float _clipPlaneOffset { get; set; } = 0.07f;
+    [Export] public bool _hdr { get; set; } = true;
+    [Export] public bool _stencil { get; set; }
+    [Export] public bool _hideCameraGameobject { get; set; } = true;
+    [Export] public bool _allowMSAA { get; set; }
+    [Export] public float _farClipPlane { get; set; } = 1000.0f;
+    [Export] public bool _forceForwardRenderingPath { get; set; } = true;
+    [Export] public int _clearFlags { get; set; } = 1;
+    [Export(PropertyHint.Range, "1,60,1")]
+    public int RefreshPerFrames
+    {
+        get => _refreshPerFramesValue;
+        set => _refreshPerFramesValue = Mathf.Max(1, value);
+    }
+    [Export] public int _frameRefreshOffset { get; set; }
+    public float Intensity { get; set; } = 1.0f;
 
     private SubViewport? _renderViewport;
     private SubViewport? _outputViewport;
@@ -64,7 +69,7 @@ public partial class CrestOceanPlanarReflection : Node3D
             World3D = GetViewport().World3D,
         };
         AddChild(_renderViewport, false, InternalMode.Back);
-        _camera = new Camera3D { Name = "ReflectionCamera", CullMask = _cullMask };
+        _camera = new Camera3D { Name = "ReflectionCamera", CullMask = _reflectionLayers };
         _renderViewport.AddChild(_camera);
 
         _outputViewport = new SubViewport
@@ -97,11 +102,11 @@ public partial class CrestOceanPlanarReflection : Node3D
         var ocean = CrestOceanRendererFacade.Instance;
         var sourceCamera = GetViewport()?.GetCamera3D();
         if (ocean == null || sourceCamera == null) return;
-        ocean.SetPlanarReflection(_outputViewport.GetTexture(), intensity);
-        if (intensity <= 0.001f || _rendering) return;
+        ocean.SetPlanarReflection(_outputViewport.GetTexture(), Intensity);
+        if (Intensity <= 0.001f || _rendering) return;
         _frame++;
-        if (_frame % _refreshPerFrames != 0) return;
-        UpdateReflectionCamera(sourceCamera, ocean.OceanLevel + clip_plane_offset);
+        if ((_frame + _frameRefreshOffset) % RefreshPerFrames != 0) return;
+        UpdateReflectionCamera(sourceCamera, ocean.OceanLevel + _clipPlaneOffset);
         ApplySize();
         RenderOnce(ocean);
     }
@@ -131,7 +136,7 @@ public partial class CrestOceanPlanarReflection : Node3D
 
     private uint HiddenLayerBit()
     {
-        var freeBits = (~_cullMask) & 0xFFFFFu;
+        var freeBits = (~_reflectionLayers) & 0xFFFFFu;
         return freeBits == 0 ? 1u << 19 : freeBits & (0u - freeBits);
     }
 
@@ -157,7 +162,7 @@ public partial class CrestOceanPlanarReflection : Node3D
     private void ApplySize()
     {
         if (_renderViewport == null || _outputViewport == null || _flipSprite == null) return;
-        var target = _reflectionTextureSize;
+        var target = new Vector2I(_textureSize, _textureSize);
         var viewportSize = GetViewport()?.GetVisibleRect().Size ?? Vector2.Zero;
         if (viewportSize.X > 0.0f && viewportSize.Y > 0.0f)
             target.Y = Mathf.Max(16, Mathf.RoundToInt(target.X * viewportSize.Y / viewportSize.X));

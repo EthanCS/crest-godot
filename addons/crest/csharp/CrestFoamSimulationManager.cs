@@ -7,7 +7,7 @@ namespace Crest.Godot;
 [GlobalClass]
 public partial class CrestFoamSimulationManagerCs : RefCounted
 {
-    [Export] public CrestSimSettingsFoam settings { get; set; } = new();
+    public CrestSimSettingsFoam settings { get; set; } = new();
     public CrestLodDataMgrCs Data { get; } = new();
     public Texture2DArrayRD texture_array => Data.TextureArray;
     public float TimeToSimulate { get; private set; }
@@ -36,19 +36,13 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         LastSubstepDelta = 0.0f;
     }
 
-    // Compatibility spelling retained for serialized/script-facing APIs.
-    public void init_mgr(int resolution, int layers, Resource? source = null)
-    {
-        InitManager(resolution, layers, source as CrestSimSettingsFoam);
-    }
-
     public void NotifyTeleport() => NeedsPrewarm = true;
 
     /// Advances the fixed-frequency simulation clock and returns the number
     /// of dispatches the renderer should issue this frame.
     public int UpdateSchedule(float delta)
     {
-        var frequency = Mathf.Max(settings.simulation_frequency, 1.0f);
+        var frequency = Mathf.Max(settings._simulationFrequency, 1.0f);
         TimeToSimulate += Mathf.Max(delta, 0.0f);
         var substeps = Mathf.FloorToInt(TimeToSimulate * frequency);
         var step = 1.0f / frequency;
@@ -87,10 +81,10 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         var values = new[]
         {
             (float)Data.Resolution, (float)Data.LayerCount, dt, lodChange, oceanLevel,
-            useSourceTransforms ? 1.0f : 0.0f, settings.foam_fade_rate,
-            settings.wave_foam_strength, settings.wave_foam_coverage,
-            (float)settings.filter_waves, settings.shoreline_foam_max_depth,
-            settings.shoreline_foam_strength, NeedsPrewarm && settings.prewarm ? 1.0f : 0.0f,
+            useSourceTransforms ? 1.0f : 0.0f, settings._foamFadeRate,
+            settings._waveFoamStrength, settings._waveFoamCoverage,
+            (float)settings._filterWaves, settings._shorelineFoamMaxDepth,
+            settings._shorelineFoamStrength, NeedsPrewarm && settings._prewarm ? 1.0f : 0.0f,
         };
         _update.Dispatch((uint)Mathf.CeilToInt(Data.Resolution / 8.0f),
             (uint)Mathf.CeilToInt(Data.Resolution / 8.0f), (uint)Data.LayerCount,
@@ -143,10 +137,11 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         return dispatched;
     }
 
-    public void update_sim(double delta, GodotObject? lodTransform, Rid cascadeCurrent,
-        Rid cascadeSource, GodotObject? flow, GodotObject? animatedWaves,
-        GodotObject? depth, double oceanLevel, double lodChange)
+    public void update_sim(double delta, CrestLodTransformCs lodTransform, Rid cascadeCurrent,
+        Rid cascadeSource, CrestFlowManagerCs? flow, CrestAnimatedWavesManagerCs? animatedWaves,
+        CrestSeaFloorDepthManagerCs? depth, double oceanLevel, double lodChange)
     {
+        _ = lodTransform;
         var count = UpdateSchedule((float)delta);
         for (var i = 0; i < count; i++)
         {
@@ -155,8 +150,9 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         }
     }
 
-    public void inject_inputs(GodotObject? lodTransform, Rid cascadeCurrent, Array inputs, double time)
+    public void inject_inputs(CrestLodTransformCs lodTransform, Rid cascadeCurrent, Array inputs, double time)
     {
+        _ = lodTransform;
         var typed = new Array<Dictionary>();
         foreach (var value in inputs)
             if (value.VariantType == Variant.Type.Dictionary)
@@ -164,8 +160,6 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         DispatchInputs(cascadeCurrent, typed, (float)time);
     }
 
-    public void notify_teleport() => NotifyTeleport();
-    public void free_rids() => FreeRids();
 
     public void FreeRids()
     {
@@ -242,7 +236,8 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
     }
 
     private bool DispatchUpdateDynamic(float dt, Rid cascadeCurrent, Rid cascadeSource,
-        GodotObject? flow, GodotObject? animatedWaves, GodotObject? depth,
+        CrestFlowManagerCs? flow, CrestAnimatedWavesManagerCs? animatedWaves,
+        CrestSeaFloorDepthManagerCs? depth,
         float oceanLevel, float lodChange, bool useSourceTransforms)
     {
         if (_device == null || _update == null || !_update.IsValid)
@@ -251,17 +246,18 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         {
             StorageUniform(0, cascadeCurrent), StorageUniform(1, cascadeSource),
             Data.MakeSampledUniform(2), Data.MakeImageUniform(3),
-            SampledFromManager(flow, 4), SampledFromManager(animatedWaves, 5),
-            SampledFromManager(depth, 6),
+            flow?.Data.MakeSampledUniform(4) ?? Data.MakeSampledUniform(4),
+            animatedWaves?.Data.MakeSampledUniform(5) ?? Data.MakeSampledUniform(5),
+            depth?.Data.MakeSampledUniform(6) ?? Data.MakeSampledUniform(6),
         };
         var set = _update.MakeUniformSet(uniforms);
         var values = new[]
         {
             (float)Data.Resolution, (float)Data.LayerCount, dt, lodChange, oceanLevel,
-            useSourceTransforms ? 1.0f : 0.0f, settings.foam_fade_rate,
-            settings.wave_foam_strength, settings.wave_foam_coverage,
-            (float)settings.filter_waves, settings.shoreline_foam_max_depth,
-            settings.shoreline_foam_strength, NeedsPrewarm && settings.prewarm ? 1.0f : 0.0f,
+            useSourceTransforms ? 1.0f : 0.0f, settings._foamFadeRate,
+            settings._waveFoamStrength, settings._waveFoamCoverage,
+            (float)settings._filterWaves, settings._shorelineFoamMaxDepth,
+            settings._shorelineFoamStrength, NeedsPrewarm && settings._prewarm ? 1.0f : 0.0f,
         };
         _update.Dispatch((uint)Mathf.CeilToInt(Data.Resolution / 8.0f),
             (uint)Mathf.CeilToInt(Data.Resolution / 8.0f), (uint)Data.LayerCount,
@@ -273,14 +269,4 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         return true;
     }
 
-    private RDUniform SampledFromManager(GodotObject? manager, uint binding)
-    {
-        if (manager != null && manager.HasMethod("make_sampled_uniform"))
-        {
-            var result = manager.Call("make_sampled_uniform", (int)binding);
-            if (result.VariantType == Variant.Type.Object && result.AsGodotObject() is RDUniform uniform)
-                return uniform;
-        }
-        return Data.MakeSampledUniform(binding);
-    }
 }

@@ -7,58 +7,68 @@ namespace Crest.Godot;
 /// CPU/GPU-compatible Gerstner component. Each wave uses eight floats:
 /// dir.x, dir.z, amplitude, chop amplitude, omega, phase, phase2, k.
 [Tool]
-public partial class CrestShapeGerstner : Node3D
+public partial class CrestShapeGerstner : Node3D, ICrestShapeGenerator
 {
     [Signal] public delegate void WaveDataChangedEventHandler();
     private const int MaxWaveComponents = 1024;
-    private Resource? _spectrum;
-    private int _componentsPerOctave = 8;
-    private int _randomSeed;
-    private float _reverseWaveWeight = 0.5f;
-    private float _weight = 1.0f;
-    private float _attenuationInShallows = 0.95f;
+    private CrestWaveSpectrum? _spectrumValue;
+    private int _componentsPerOctaveValue = 8;
+    private int _randomSeedValue;
+    private float _reverseWaveWeightValue = 0.5f;
+    private float _weightValue = 1.0f;
     private bool _dirty = true;
     public int Version { get; private set; }
     public bool IsDirty => _dirty;
-    [Export] public Resource? spectrum
+    [Export] public CrestWaveSpectrum? _spectrum
     {
-        get => _spectrum;
+        get => _spectrumValue;
         set
         {
-            if (_spectrum == value) return;
-            DisconnectSpectrum(_spectrum);
-            _spectrum = value;
-            ConnectSpectrum(_spectrum);
+            if (_spectrumValue == value) return;
+            DisconnectSpectrum(_spectrumValue);
+            _spectrumValue = value;
+            ConnectSpectrum(_spectrumValue);
             MarkDirty();
         }
     }
-    [Export(PropertyHint.Range, "1,16,1")] public int components_per_octave
+    [Export] public bool _spectrumFixedAtRuntime { get; set; } = true;
+    [Export] public bool _overrideGlobalWindDirection { get; set; }
+    [Export(PropertyHint.Range, "-180,180,0.1")] public float _waveDirectionHeadingAngle { get; set; }
+    [Export] public bool _overrideGlobalWindSpeed { get; set; }
+    [Export(PropertyHint.Range, "0,150,0.1")] public float _windSpeed { get; set; } = 20.0f;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _respectShallowWaterAttenuation { get; set; } = 1.0f;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _weight
     {
-        get => _componentsPerOctave;
-        set { value = Mathf.Clamp(value, 1, 16); if (_componentsPerOctave != value) { _componentsPerOctave = value; MarkDirty(); } }
+        get => _weightValue;
+        set { value = Mathf.Clamp(value, 0.0f, 1.0f); if (!Mathf.IsEqualApprox(_weightValue, value)) { _weightValue = value; MarkDirty(); } }
     }
-    [Export] public int random_seed
+    [Export] public int _blendMode { get; set; }
+    [Export] public int _queue { get; set; }
+    [Export] public int _resolution { get; set; } = 128;
+    [Export] public float _featherWidth { get; set; }
+    [Export] public bool _overrideSplineSettings { get; set; }
+    [Export] public float _radius { get; set; } = 50.0f;
+    [Export] public int _subdivisions { get; set; } = 1;
+    [Export] public float _featherWaveStart { get; set; } = 0.1f;
+    [Export] public int _version { get; set; } = 1;
+    [Export] public bool _swell { get; set; }
+    [Export(PropertyHint.Range, "1,16,1")] public int _componentsPerOctave
     {
-        get => _randomSeed;
-        set { if (_randomSeed != value) { _randomSeed = value; MarkDirty(); } }
+        get => _componentsPerOctaveValue;
+        set { value = Mathf.Clamp(value, 1, 16); if (_componentsPerOctaveValue != value) { _componentsPerOctaveValue = value; MarkDirty(); } }
     }
-    [Export] public float[] wave_data { get; set; } = System.Array.Empty<float>();
-    [Export(PropertyHint.Range, "0,1,0.01")] public float reverse_wave_weight
+    [Export] public int _randomSeed
     {
-        get => _reverseWaveWeight;
-        set { value = Mathf.Clamp(value, 0.0f, 1.0f); if (!Mathf.IsEqualApprox(_reverseWaveWeight, value)) { _reverseWaveWeight = value; MarkDirty(); } }
+        get => _randomSeedValue;
+        set { if (_randomSeedValue != value) { _randomSeedValue = value; MarkDirty(); } }
     }
-    [Export(PropertyHint.Range, "0,1,0.01")] public float weight
+    public float[] WaveData { get; set; } = System.Array.Empty<float>();
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _reverseWaveWeight
     {
-        get => _weight;
-        set { value = Mathf.Clamp(value, 0.0f, 1.0f); if (!Mathf.IsEqualApprox(_weight, value)) { _weight = value; MarkDirty(); } }
+        get => _reverseWaveWeightValue;
+        set { value = Mathf.Clamp(value, 0.0f, 1.0f); if (!Mathf.IsEqualApprox(_reverseWaveWeightValue, value)) { _reverseWaveWeightValue = value; MarkDirty(); } }
     }
-    [Export(PropertyHint.Range, "0,1,0.01")] public float attenuation_in_shallows
-    {
-        get => _attenuationInShallows;
-        set { value = Mathf.Clamp(value, 0.0f, 1.0f); if (!Mathf.IsEqualApprox(_attenuationInShallows, value)) { _attenuationInShallows = value; MarkDirty(); } }
-    }
-
+    [Export] public CrestShapeDebugFields _debug { get; set; } = new();
     private int[] _lodStart = System.Array.Empty<int>();
     private int[] _lodEnd = System.Array.Empty<int>();
     private float[] _lodVariance = System.Array.Empty<float>();
@@ -73,8 +83,8 @@ public partial class CrestShapeGerstner : Node3D
 
     public override void _EnterTree()
     {
-        spectrum ??= new CrestWaveSpectrum();
-        ConnectSpectrum(_spectrum);
+        _spectrum ??= new CrestWaveSpectrum();
+        ConnectSpectrum(_spectrumValue);
         if (!Active.Contains(this)) Active.Add(this);
         AddToGroup("crest_shape_generator");
         AddToGroup("crest_shape_generator_cs");
@@ -83,35 +93,27 @@ public partial class CrestShapeGerstner : Node3D
     public override void _ExitTree()
     {
         Active.Remove(this);
-        DisconnectSpectrum(_spectrum);
+        DisconnectSpectrum(_spectrumValue);
         FreeGpu();
     }
 
-    public void Regenerate(float oceanScale, GodotObject lodTransform)
+    public void Regenerate(float oceanScale, CrestLodTransformCs lodTransform)
     {
-        if (spectrum == null) return;
+        if (_spectrum == null) return;
         _dirty = false;
         Version++;
         var rng = new RandomNumberGenerator();
-        if (random_seed != 0) rng.Seed = (ulong)random_seed; else rng.Randomize();
-        Array<Dictionary> generated;
-        if (spectrum is CrestWaveSpectrum typedSpectrum)
-            generated = typedSpectrum.generate_wave_data(components_per_octave, rng);
-        else
-        {
-            generated = new Array<Dictionary>();
-            foreach (var value in spectrum.Call("generate_wave_data", components_per_octave, rng).AsGodotArray())
-                if (value.VariantType == Variant.Type.Dictionary) generated.Add(value.AsGodotDictionary());
-        }
-        var gravity = CrestConstantsCs.Gravity * GetFloat(spectrum, "gravity_scale", 1.0f);
-        var chop = GetFloat(spectrum, "chop", 1.6f);
-        var chopScales = spectrum.Get("chop_scales").AsFloat32Array();
+        if (_randomSeed != 0) rng.Seed = (ulong)_randomSeed; else rng.Randomize();
+        var generated = _spectrum.generate_wave_data(_componentsPerOctave, rng, WindDirectionAngle());
+        var gravity = CrestConstantsCs.Gravity * _spectrum._gravityScale;
+        var chop = _spectrum._chop;
+        var chopScales = _spectrum._chopScales;
         var waves = new List<float>();
         foreach (var value in generated)
         {
             var data = value;
             var wavelength = (float)data["wavelength"];
-            var amplitude = SpectrumAmplitude(wavelength, gravity) * rng.Randf() * weight;
+            var amplitude = SpectrumAmplitude(wavelength, gravity) * rng.Randf() * _weight;
             if (amplitude < 0.001f) continue;
             var octave = Mathf.Clamp(Mathf.FloorToInt(Mathf.Log(wavelength) / Mathf.Log(2.0f)) + 4, 0, 13);
             var k = Mathf.Tau / wavelength;
@@ -124,40 +126,38 @@ public partial class CrestShapeGerstner : Node3D
                 omega, phase, Mathf.PosMod(phase + rng.Randf() * Mathf.Tau * 0.13f, Mathf.Tau), k });
             if (waves.Count / 8 >= MaxWaveComponents) break;
         }
-        wave_data = waves.ToArray();
+        WaveData = waves.ToArray();
         SortWaves();
         Rebucket(oceanScale, lodTransform);
         FreeWaveBuffer();
         EmitSignal(SignalName.WaveDataChanged);
     }
 
-    public void evaluate(Rid target, GodotObject? depthManager, GodotObject lodTransform,
+    public void Evaluate(Rid target, CrestSeaFloorDepthManagerCs? depthManager, CrestLodTransformCs lodTransform,
         double oceanScale, double oceanLevel, double time, bool accumulate = false)
     {
-        if (_dirty || wave_data.Length == 0) Regenerate((float)oceanScale, lodTransform);
-        if (wave_data.Length == 0) return;
+        if (_dirty || WaveData.Length == 0) Regenerate((float)oceanScale, lodTransform);
+        if (WaveData.Length == 0) return;
         if (!Mathf.IsEqualApprox(_bucketScale, (float)oceanScale)) Rebucket((float)oceanScale, lodTransform);
         var device = RenderingServer.GetRenderingDevice();
         if (device == null) return;
         _compute ??= CrestRDComputeCs.FromFile(device, "res://addons/crest/shaders/sim/gerstner_eval.glsl");
         if (_compute == null || !_compute.IsValid) return;
         if (!_waveBuffer.IsValid)
-            _waveBuffer = device.StorageBufferCreate((uint)(wave_data.Length * 4), FloatsToBytes(wave_data));
+            _waveBuffer = device.StorageBufferCreate((uint)(WaveData.Length * 4), FloatsToBytes(WaveData));
         var depthUniform = GetDepthUniform(depthManager, device);
         var set = _compute.MakeUniformSet(new Array<RDUniform>
         {
             StorageUniform(0, _waveBuffer), ImageUniform(1, target), depthUniform,
         });
-        var cascade = lodTransform is CrestLodTransformCs typedTransform
-            ? typedTransform.CascadeDataCurrent : lodTransform.Get("cascade_data_current").AsFloat32Array();
-        var resolution = lodTransform is CrestLodTransformCs typedResolution
-            ? typedResolution.LodDataResolution : (int)lodTransform.Get("lod_data_resolution");
+        var cascade = lodTransform.CascadeDataCurrent;
+        var resolution = lodTransform.LodDataResolution;
         for (var lod = 0; lod < _lodStart.Length; lod++)
         {
             var o = lod * 8;
             var push = new[] { cascade[o], cascade[o + 1], cascade[o + 5], (float)resolution,
-                (float)lod, (float)time, reverse_wave_weight, _lodVariance[lod],
-                depthManager != null ? attenuation_in_shallows : 0.0f, _lodMedianK[lod], (float)oceanLevel,
+                (float)lod, (float)time, _swell ? 0.0f : _reverseWaveWeight, _lodVariance[lod],
+                depthManager != null ? _respectShallowWaterAttenuation : 0.0f, _lodMedianK[lod], (float)oceanLevel,
                 (float)_lodStart[lod], (float)_lodEnd[lod], accumulate ? 1.0f : 0.0f };
             _compute.Dispatch((uint)Mathf.CeilToInt(resolution / 8.0f), (uint)Mathf.CeilToInt(resolution / 8.0f), 1,
                 new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set }, CrestRDComputeCs.PackPushConstants(push));
@@ -168,24 +168,25 @@ public partial class CrestShapeGerstner : Node3D
     public Vector3 ComputeDisplacement(Vector2 worldXz, double time, int maxLod = -1)
     {
         var result = Vector3.Zero;
-        var count = wave_data.Length / 8;
+        var count = WaveData.Length / 8;
         if (maxLod >= 0 && _lodEnd.Length > 0)
             count = _lodEnd[Mathf.Min(maxLod, _lodEnd.Length - 1)];
         for (var i = 0; i < count; i++)
         {
             var o = i * 8;
-            var direction = new Vector2(wave_data[o], wave_data[o + 1]);
-            var amplitude = wave_data[o + 2];
-            var chopAmplitude = wave_data[o + 3];
-            var omega = wave_data[o + 4];
-            var phase = wave_data[o + 5];
-            var reversePhase = wave_data[o + 6];
-            var waveNumber = wave_data[o + 7];
+            var direction = new Vector2(WaveData[o], WaveData[o + 1]);
+            var amplitude = WaveData[o + 2];
+            var chopAmplitude = WaveData[o + 3];
+            var omega = WaveData[o + 4];
+            var phase = WaveData[o + 5];
+            var reversePhase = WaveData[o + 6];
+            var waveNumber = WaveData[o + 7];
             var x = waveNumber * direction.Dot(worldXz);
             var a1 = x + phase - omega * (float)time;
             var a2 = x + reversePhase + omega * (float)time;
-            var sine = Mathf.Sin(a1) + reverse_wave_weight * Mathf.Sin(a2);
-            result.Y += amplitude * (Mathf.Cos(a1) + reverse_wave_weight * Mathf.Cos(a2));
+            var reverseWeight = _swell ? 0.0f : _reverseWaveWeight;
+            var sine = Mathf.Sin(a1) + reverseWeight * Mathf.Sin(a2);
+            result.Y += amplitude * (Mathf.Cos(a1) + reverseWeight * Mathf.Cos(a2));
             result.X += chopAmplitude * sine * direction.X;
             result.Z += chopAmplitude * sine * direction.Y;
         }
@@ -194,50 +195,45 @@ public partial class CrestShapeGerstner : Node3D
 
     private void SortWaves()
     {
-        var count = wave_data.Length / 8;
+        var count = WaveData.Length / 8;
         var rows = new List<float[]>(count);
         for (var i = 0; i < count; i++)
         {
-            var row = new float[8]; System.Array.Copy(wave_data, i * 8, row, 0, 8); rows.Add(row);
+            var row = new float[8]; System.Array.Copy(WaveData, i * 8, row, 0, 8); rows.Add(row);
         }
         rows.Sort((a, b) => b[7].CompareTo(a[7]));
-        for (var i = 0; i < count; i++) System.Array.Copy(rows[i], 0, wave_data, i * 8, 8);
+        for (var i = 0; i < count; i++) System.Array.Copy(rows[i], 0, WaveData, i * 8, 8);
     }
 
-    private void Rebucket(float oceanScale, GodotObject lodTransform)
+    private void Rebucket(float oceanScale, CrestLodTransformCs lodTransform)
     {
         _bucketScale = oceanScale;
-        var cascade = lodTransform is CrestLodTransformCs typedTransform
-            ? typedTransform.CascadeDataCurrent : lodTransform.Get("cascade_data_current").AsFloat32Array();
+        var cascade = lodTransform.CascadeDataCurrent;
         var lodCount = lodTransform is CrestLodTransformCs typedCount
             ? typedCount.LodCount : (int)lodTransform.Get("lod_count");
         _lodStart = new int[lodCount]; _lodEnd = new int[lodCount];
         _lodVariance = new float[lodCount]; _lodMedianK = new float[lodCount];
-        var count = wave_data.Length / 8; var index = 0; var variance = 0.0f;
+        var count = WaveData.Length / 8; var index = 0; var variance = 0.0f;
         var min0 = cascade[7] * 0.5f;
-        while (index < count && Mathf.Tau / wave_data[index * 8 + 7] < min0) index++;
-        var chop = spectrum != null ? GetFloat(spectrum, "chop", 1.6f) : 1.6f;
+        while (index < count && Mathf.Tau / WaveData[index * 8 + 7] < min0) index++;
+        var chop = _spectrum?._chop ?? 1.6f;
         for (var lod = 0; lod < lodCount; lod++)
         {
             var maxWavelength = cascade[lod * 8 + 7];
             _lodStart[lod] = index;
             if (lod == lodCount - 1) index = count;
-            else while (index < count && Mathf.Tau / wave_data[index * 8 + 7] < maxWavelength) index++;
+            else while (index < count && Mathf.Tau / WaveData[index * 8 + 7] < maxWavelength) index++;
             _lodEnd[lod] = index; _lodMedianK[lod] = Mathf.Tau / (0.75f * maxWavelength);
             _lodVariance[lod] = variance;
             var minWavelength = maxWavelength * 0.5f;
-            if (spectrum != null)
+            if (_spectrum != null)
                 variance += chop * SpectrumAmplitude(1.5f * minWavelength) / (1.5f * minWavelength);
         }
     }
 
-    private RDUniform GetDepthUniform(GodotObject? manager, RenderingDevice device)
+    private RDUniform GetDepthUniform(CrestSeaFloorDepthManagerCs? manager, RenderingDevice device)
     {
-        if (manager != null && manager.HasMethod("make_sampled_uniform"))
-        {
-            var result = manager.Call("make_sampled_uniform", 2);
-            if (result.VariantType == Variant.Type.Object && result.AsGodotObject() is RDUniform uniform) return uniform;
-        }
+        if (manager != null) return manager.Data.MakeSampledUniform(2);
         _fallbackDepth ??= new CrestLodDataMgrCs();
         if (_fallbackDepth.Device == null)
             _fallbackDepth.InitSim(1, 2, RenderingDevice.DataFormat.R32G32Sfloat, false);
@@ -255,30 +251,31 @@ public partial class CrestShapeGerstner : Node3D
     }
     private void OnSpectrumChanged() => MarkDirty();
     private void MarkDirty() => _dirty = true;
-    private void ConnectSpectrum(Resource? value)
+    private void ConnectSpectrum(CrestWaveSpectrum? value)
     {
         if (value == null) return;
         var callable = Callable.From(OnSpectrumChanged);
         if (!value.IsConnected(Resource.SignalName.Changed, callable))
             value.Connect(Resource.SignalName.Changed, callable);
     }
-    private void DisconnectSpectrum(Resource? value)
+    private void DisconnectSpectrum(CrestWaveSpectrum? value)
     {
         if (value == null) return;
         var callable = Callable.From(OnSpectrumChanged);
         if (value.IsConnected(Resource.SignalName.Changed, callable))
             value.Disconnect(Resource.SignalName.Changed, callable);
     }
-    private static float GetFloat(GodotObject obj, string name, float fallback)
-    {
-        var value = obj.Get(name); return value.VariantType == Variant.Type.Float ? (float)value : fallback;
-    }
     private float SpectrumAmplitude(float wavelength, float gravity = CrestConstantsCs.Gravity)
     {
-        if (spectrum is CrestWaveSpectrum typed)
-            return typed.get_amplitude(wavelength, components_per_octave, gravity);
-        return spectrum != null ? (float)spectrum.Call("get_amplitude", wavelength, components_per_octave, gravity) : 0.0f;
+        return _spectrum?.get_amplitude(wavelength, _componentsPerOctave,
+            WindSpeedMetersPerSecond(), gravity) ?? 0.0f;
     }
+    private float WindDirectionAngle() => _overrideGlobalWindDirection
+        ? _waveDirectionHeadingAngle
+        : CrestOceanRendererFacade.Instance?._globalWindDirectionAngle ?? _waveDirectionHeadingAngle;
+    private float WindSpeedMetersPerSecond() => (_overrideGlobalWindSpeed
+        ? _windSpeed
+        : CrestOceanRendererFacade.Instance?._globalWindSpeed ?? _windSpeed) / 3.6f;
     private static RDUniform StorageUniform(uint binding, Rid rid)
     {
         var u = new RDUniform { UniformType = RenderingDevice.UniformType.StorageBuffer, Binding = (int)binding }; u.AddId(rid); return u;

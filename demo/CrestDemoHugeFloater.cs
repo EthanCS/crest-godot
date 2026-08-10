@@ -12,10 +12,10 @@ public partial class CrestDemoHugeFloater : RigidBody3D
     {
         AddChild(new CrestSimpleFloatingObject
         {
-            object_width = 30.0f,
-            raise_object = 2.0f,
-            buoyancy_coeff = 3.0f,
-            buoyancy_torque = 8.0f,
+            _objectWidth = 30.0f,
+            _raiseObject = 2.0f,
+            _buoyancyCoeff = 3.0f,
+            _boyancyTorque = 8.0f,
         });
     }
 

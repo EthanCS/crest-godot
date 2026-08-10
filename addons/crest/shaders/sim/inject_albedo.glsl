@@ -24,8 +24,24 @@ layout(push_constant, std430) uniform Params {
 	vec2 rect_half_size;
 	vec4 tint;
 	float use_texture;
+	float blend_source;
+	float blend_target;
 }
 pc;
+
+vec4 blend_factor(float mode, vec4 src, vec4 dst) {
+	if (mode < 0.5) return vec4(0.0);                         // Zero
+	if (mode < 1.5) return vec4(1.0);                         // One
+	if (mode < 2.5) return dst;                               // DstColor
+	if (mode < 3.5) return src;                               // SrcColor
+	if (mode < 4.5) return vec4(1.0) - dst;                   // OneMinusDstColor
+	if (mode < 5.5) return vec4(src.a);                       // SrcAlpha
+	if (mode < 6.5) return vec4(1.0) - src;                   // OneMinusSrcColor
+	if (mode < 7.5) return vec4(dst.a);                       // DstAlpha
+	if (mode < 8.5) return vec4(1.0 - dst.a);                 // OneMinusDstAlpha
+	if (mode < 9.5) return vec4(min(src.a, 1.0 - dst.a));     // SrcAlphaSaturate
+	return vec4(1.0 - src.a);                                 // OneMinusSrcAlpha
+}
 
 void main() {
 	ivec3 id = ivec3(gl_GlobalInvocationID);
@@ -45,9 +61,8 @@ void main() {
 
 	vec4 tex = pc.use_texture > 0.5 ? textureLod(input_texture, uv_input, 0.0) : vec4(1.0);
 	vec4 value = tex * pc.tint;
-	float feather = clamp(min(min(uv_input.x, 1.0 - uv_input.x), min(uv_input.y, 1.0 - uv_input.y)) / 0.1, 0.0, 1.0);
-
 	vec4 prev = imageLoad(albedo_target, id);
-	float a = value.a * feather;
-	imageStore(albedo_target, id, vec4(mix(prev.rgb, value.rgb, a), max(prev.a, a)));
+	vec4 result = value * blend_factor(pc.blend_source, value, prev) +
+		prev * blend_factor(pc.blend_target, value, prev);
+	imageStore(albedo_target, id, clamp(result, vec4(0.0), vec4(1.0)));
 }

@@ -28,7 +28,7 @@ public partial class CrestSeaFloorDepthManagerCs : RefCounted
         }
     }
 
-    public void update_sim(GodotObject? lodTransform, Rid cascadeCurrent, Array inputs)
+    public void update_sim(GodotObject? lodTransform, Rid cascadeCurrent, Array inputs, double oceanLevel = 0.0)
     {
         if (_device == null || _clear == null || !_clear.IsValid)
             return;
@@ -41,11 +41,8 @@ public partial class CrestSeaFloorDepthManagerCs : RefCounted
             return;
         foreach (var value in inputs)
             if (value.VariantType == Variant.Type.Dictionary)
-                DispatchInput(cascadeCurrent, value.AsGodotDictionary());
+                DispatchInput(cascadeCurrent, value.AsGodotDictionary(), (float)oceanLevel);
     }
-
-    public Variant make_sampled_uniform(int binding) =>
-        Data.MakeSampledUniform((uint)binding);
 
     public void InvalidateTexture(Texture2D? texture)
     {
@@ -70,7 +67,7 @@ public partial class CrestSeaFloorDepthManagerCs : RefCounted
         Data.FreeRids();
     }
 
-    private void DispatchInput(Rid cascadeCurrent, global::Godot.Collections.Dictionary input)
+    private void DispatchInput(Rid cascadeCurrent, global::Godot.Collections.Dictionary input, float oceanLevel)
     {
         var texture = GetTexture(input);
         var texUniform = new RDUniform { UniformType = RenderingDevice.UniformType.SamplerWithTexture, Binding = 1 };
@@ -89,6 +86,7 @@ public partial class CrestSeaFloorDepthManagerCs : RefCounted
             input.ContainsKey("height_offset") ? (float)input["height_offset"] : 0.0f,
             input.ContainsKey("sea_level_offset") ? (float)input["sea_level_offset"] : 0.0f,
             input.ContainsKey("mode") ? (float)input["mode"] : 0.0f,
+            oceanLevel,
         };
         _inject.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set },

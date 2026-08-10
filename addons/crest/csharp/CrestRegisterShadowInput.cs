@@ -4,12 +4,15 @@ using Godot.Collections;
 namespace Crest.Godot;
 
 [Tool, GlobalClass]
-public partial class CrestRegisterShadowInputCs : Node3D
+public partial class CrestRegisterShadowInput : CrestRegisterLodDataInput
 {
-    [Export] public float radius { get; set; } = 1.0f;
+    [Export] public int _version { get; set; }
     public override void _EnterTree() => AddToGroup("crest_shadow_input");
     public Dictionary GetShadowCaster() => new()
     {
-        ["pos"] = GlobalPosition, ["radius"] = radius,
+        ["rect_center"] = GetRectCenter(false), ["rect_half_size"] = GetRectHalfSize(),
+        ["texture"] = RasterizedInput("shadow", CrestInputRasterizer.ValueMode.Coverage),
+        ["shadow_value"] = MaterialFloat("_ShadowValue", 1.0f),
     };
+    public override Dictionary GetInjection() => GetShadowCaster();
 }

@@ -15,15 +15,18 @@ layout(set = 0, binding = 0, std430) readonly buffer CascadeData {
 cascades;
 
 layout(rgba16f, set = 0, binding = 1) uniform image2DArray wave_buffer;
+layout(set = 0, binding = 2) uniform sampler2D input_texture;
 
 layout(push_constant, std430) uniform Params {
 	float texture_res;
 	float lod_count;
 	vec2 center; // world XZ
-	float radius;
+	vec2 rect_half_size;
 	float amplitude;
-	float blend_mode; // 0 = add, 1 = set height (flatten towards amplitude)
-	float feather;    // UV feather width fraction
+	float blend_mode; // 0 = add texture, 1 = set geometry height
+	float heights_only;
+	float ocean_level;
+	float wavelength; // -1 = all pre-combine, 0 = all post-combine, >0 = octave
 }
 pc;
 
@@ -36,25 +39,23 @@ void main() {
 
 	CrestCascade cascade;
 	CREST_CASCADE_LOAD(cascade, cascades.data, lod);
+	if (pc.wavelength > 0.0 &&
+		(pc.wavelength < cascade.max_wavelength * 0.5 || pc.wavelength >= cascade.max_wavelength)) return;
 	vec2 world_pos = crest_uv_to_world((vec2(id.xy) + 0.5) / pc.texture_res, cascade);
 
-	vec2 rel = world_pos - pc.center;
-	float dist2 = dot(rel, rel) / (pc.radius * pc.radius);
-	if (dist2 >= 1.0) {
+	vec2 uv_input = (world_pos - pc.center) / (2.0 * pc.rect_half_size) + 0.5;
+	if (uv_input.x < 0.0 || uv_input.x > 1.0 || uv_input.y < 0.0 || uv_input.y > 1.0) {
 		return;
 	}
-	// Crest's bump shape: pow((1 - r^2)^2, 0.05) - a flat-topped bump.
-	float shape = pow((1.0 - dist2) * (1.0 - dist2), 0.05);
-
-	vec2 uv = (vec2(id.xy) + 0.5) / pc.texture_res;
-	float feather_w = clamp(min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)) / pc.feather, 0.0, 1.0);
+	vec4 input_value = textureLod(input_texture, uv_input, 0.0);
+	if (input_value.a <= 0.0) return;
 
 	vec4 prev = imageLoad(wave_buffer, id);
 	if (pc.blend_mode < 0.5) {
-		prev.y += pc.amplitude * shape * feather_w;
+		if (pc.heights_only > 0.5) prev.y += input_value.r * pc.amplitude;
+		else prev.xyz += input_value.rgb * pc.amplitude;
 	} else {
-		// Set height: pull the surface towards the target height.
-		prev.y = mix(prev.y, pc.amplitude, shape * feather_w);
+		prev.y = mix(prev.y, input_value.r - pc.ocean_level, input_value.a);
 	}
 	imageStore(wave_buffer, id, prev);
 }

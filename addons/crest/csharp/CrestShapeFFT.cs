@@ -5,13 +5,12 @@ namespace Crest.Godot;
 /// FFT wave generator that maps the 16 tiled spectral bands into the
 /// view-following animated-wave cascades.
 [Tool]
-public partial class CrestShapeFFT : Node3D
+public partial class CrestShapeFFT : Node3D, ICrestShapeGenerator
 {
-    private CrestWaveSpectrum? _spectrum;
-    private int _resolution = 128;
+    private CrestWaveSpectrum? _spectrumValue;
+    private int _resolutionValue = 128;
     private CrestFFTComputeCs? _fft;
-    private float _turbulence = 0.145f;
-    private int _randomSeed;
+    private float _windTurbulenceValue = 0.145f;
     private bool _spectrumDirty = true;
     private bool _reinitialize = true;
     private Rid _sliceMapBuffer;
@@ -19,71 +18,82 @@ public partial class CrestShapeFFT : Node3D
     public int SampleDispatchCount => _fft?.SampleDispatchCount ?? 0;
 
     [Export]
-    public CrestWaveSpectrum? spectrum
+    public CrestWaveSpectrum? _spectrum
     {
-        get => _spectrum;
+        get => _spectrumValue;
         set
         {
-            if (_spectrum == value) return;
-            DisconnectSpectrum(_spectrum);
-            _spectrum = value;
-            ConnectSpectrum(_spectrum);
+            if (_spectrumValue == value) return;
+            DisconnectSpectrum(_spectrumValue);
+            _spectrumValue = value;
+            ConnectSpectrum(_spectrumValue);
             _spectrumDirty = true;
         }
     }
 
     [Export(PropertyHint.Range, "16,512,1")]
-    public int resolution
+    public int _resolution
     {
-        get => _resolution;
+        get => _resolutionValue;
         set
         {
             var exponent = Mathf.Clamp(Mathf.RoundToInt(Mathf.Log(Mathf.Max(value, 16)) /
                 Mathf.Log(2.0f)), 4, 9);
             var clamped = 1 << exponent;
-            if (_resolution == clamped) return;
-            _resolution = clamped;
+            if (_resolutionValue == clamped) return;
+            _resolutionValue = clamped;
             _reinitialize = true;
             _spectrumDirty = true;
         }
     }
 
-    [Export(PropertyHint.Range, "0,1,0.01")] public float weight { get; set; } = 1.0f;
+    [Export] public bool _spectrumFixedAtRuntime { get; set; } = true;
+    [Export] public bool _overrideGlobalWindDirection { get; set; }
+    [Export(PropertyHint.Range, "-180,180,0.1")] public float _waveDirectionHeadingAngle { get; set; }
+    [Export] public bool _overrideGlobalWindSpeed { get; set; }
+    [Export(PropertyHint.Range, "0,150,0.1")] public float _windSpeed { get; set; } = 20.0f;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _respectShallowWaterAttenuation { get; set; } = 1.0f;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _weight { get; set; } = 1.0f;
+    [Export] public int _blendMode { get; set; }
+    [Export] public int _queue { get; set; }
+    [Export] public float _featherWidth { get; set; }
+    [Export] public bool _overrideSplineSettings { get; set; }
+    [Export] public float _radius { get; set; } = 50.0f;
+    [Export] public int _subdivisions { get; set; } = 1;
+    [Export] public float _featherWaveStart { get; set; } = 0.1f;
+    [Export] public int _version { get; set; } = 1;
+    [Export] public bool _overrideGlobalWindTurbulence { get; set; }
     [Export(PropertyHint.Range, "0,1,0.001")]
-    public float turbulence
+    public float _windTurbulence
     {
-        get => _turbulence;
+        get => _windTurbulenceValue;
         set
         {
             var clamped = Mathf.Clamp(value, 0.0f, 1.0f);
-            if (Mathf.IsEqualApprox(_turbulence, clamped)) return;
-            _turbulence = clamped;
+            if (Mathf.IsEqualApprox(_windTurbulenceValue, clamped)) return;
+            _windTurbulenceValue = clamped;
             _spectrumDirty = true;
         }
     }
 
-    [Export]
-    public int random_seed
-    {
-        get => _randomSeed;
-        set
-        {
-            if (_randomSeed == value) return;
-            _randomSeed = value;
-            _spectrumDirty = true;
-        }
-    }
+    [Export] public float _maxVerticalDisplacement { get; set; } = 10.0f;
+    [Export] public float _maxHorizontalDisplacement { get; set; } = 15.0f;
+    [Export] public bool _enableBakedCollision { get; set; }
+    [Export] public int _timeResolution { get; set; } = 4;
+    [Export] public float _smallestWavelengthRequired { get; set; } = 2.0f;
+    [Export(PropertyHint.Range, "4,128,1")] public float _timeLoopLength { get; set; } = 32.0f;
+    [Export] public CrestShapeDebugFields _debug { get; set; } = new();
 
     public override void _EnterTree()
     {
-        ConnectSpectrum(_spectrum);
+        ConnectSpectrum(_spectrumValue);
         AddToGroup("crest_shape_generator");
         AddToGroup("crest_shape_generator_cs");
     }
 
     public override void _ExitTree()
     {
-        DisconnectSpectrum(_spectrum);
+        DisconnectSpectrum(_spectrumValue);
         _fft?.FreeRids();
         _fft = null;
         var device = RenderingServer.GetRenderingDevice();
@@ -92,14 +102,14 @@ public partial class CrestShapeFFT : Node3D
         _sliceMapBuffer = new Rid();
     }
 
-    public void evaluate(Rid waveBuffer, GodotObject? depthManager, GodotObject lodTransform,
+    public void Evaluate(Rid waveBuffer, CrestSeaFloorDepthManagerCs? depthManager, CrestLodTransformCs lodTransform,
         double oceanScale, double oceanLevel, double time, bool accumulate = false)
     {
         _ = depthManager;
         _ = oceanLevel;
         var device = RenderingServer.GetRenderingDevice();
         if (device == null) return;
-        spectrum ??= new CrestWaveSpectrum();
+        _spectrum ??= new CrestWaveSpectrum();
 
         if (_reinitialize || _fft == null)
         {
@@ -117,17 +127,16 @@ public partial class CrestShapeFFT : Node3D
 
         if (_spectrumDirty)
         {
-            var angle = Mathf.DegToRad(spectrum.wind_direction_angle);
-            _fft.RebuildSpectrum(spectrum, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)),
-                turbulence, random_seed);
+            var angle = Mathf.DegToRad(WindDirectionAngle());
+            _fft.RebuildSpectrum(_spectrum, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)),
+                WindSpeedMetersPerSecond(), WindTurbulence(), 0.0f);
             _spectrumDirty = false;
         }
 
-        _fft.AdvanceTime((float)time * spectrum.gravity_scale, spectrum.gravity_scale, spectrum.chop);
-        var typedTransform = lodTransform as CrestLodTransformCs;
-        var lodCount = typedTransform?.LodCount ?? (int)lodTransform.Get("lod_count");
-        var lodResolution = typedTransform?.LodDataResolution ?? (int)lodTransform.Get("lod_data_resolution");
-        var maxWavelength = typedTransform?.MaxWavelength ?? lodTransform.Get("max_wavelength").AsFloat32Array();
+        _fft.AdvanceTime((float)time * _spectrum._gravityScale, _spectrum._gravityScale, _spectrum._chop);
+        var lodCount = lodTransform.LodCount;
+        var lodResolution = lodTransform.LodDataResolution;
+        var maxWavelength = lodTransform.MaxWavelength;
         if (!Mathf.IsEqualApprox(_lastScale, (float)oceanScale) || !_sliceMapBuffer.IsValid)
         {
             _lastScale = (float)oceanScale;
@@ -144,11 +153,23 @@ public partial class CrestShapeFFT : Node3D
         if (!cascadeBuffer.IsValid || maxWavelength.Length == 0) return;
         var wavelength = 0.75f * maxWavelength[0];
         var variance = wavelength > 0.0f
-            ? spectrum.chop * spectrum.get_amplitude(wavelength, 8) / wavelength
+            ? _spectrum._chop * _spectrum.get_amplitude(wavelength, 8, WindSpeedMetersPerSecond()) / wavelength
             : 0.0f;
         _fft.SampleIntoWaveBuffer(waveBuffer, cascadeBuffer, _sliceMapBuffer,
-            lodResolution, lodCount, accumulate, weight, variance);
+            lodResolution, lodCount, accumulate, _weight, variance);
     }
+
+    private float WindDirectionAngle() => _overrideGlobalWindDirection
+        ? _waveDirectionHeadingAngle
+        : CrestOceanRendererFacade.Instance?._globalWindDirectionAngle ?? _waveDirectionHeadingAngle;
+
+    private float WindSpeedMetersPerSecond() => (_overrideGlobalWindSpeed
+        ? _windSpeed
+        : CrestOceanRendererFacade.Instance?._globalWindSpeed ?? _windSpeed) / 3.6f;
+
+    private float WindTurbulence() => _overrideGlobalWindTurbulence
+        ? _windTurbulence
+        : CrestOceanRendererFacade.Instance?._globalWindTurbulence ?? _windTurbulence;
 
     private Rid FindCascadeBuffer()
     {
@@ -156,9 +177,8 @@ public partial class CrestShapeFFT : Node3D
         if (facadeBuffer.IsValid) return facadeBuffer;
         for (Node? node = GetParent(); node != null; node = node.GetParent())
         {
-            if (!node.HasMethod("cascade_buffer_current")) continue;
-            var value = node.Call("cascade_buffer_current");
-            if (value.VariantType == Variant.Type.Rid) return value.AsRid();
+            if (node is CrestOceanRendererBackend backend) return backend.CascadeBufferCurrent;
+            if (node is CrestOceanRendererFacade facade) return facade.CascadeBufferCurrent;
         }
         return new Rid();
     }
@@ -185,4 +205,11 @@ public partial class CrestShapeFFT : Node3D
         System.Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
         return bytes;
     }
+}
+
+[GlobalClass]
+public partial class CrestShapeDebugFields : Resource
+{
+    [Export] public bool _drawBounds { get; set; }
+    [Export] public bool _drawSlicesInEditor { get; set; }
 }

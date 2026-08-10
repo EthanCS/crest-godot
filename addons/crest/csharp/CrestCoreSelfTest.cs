@@ -33,9 +33,9 @@ public partial class CrestCoreSelfTest : Node
                 CrestRDComputeCs.FlushDeferredFrees();
         }
         var waveSettings = new CrestSimSettingsWave();
-        Check(Mathf.IsEqualApprox(waveSettings.courant_number, 0.7f), "wave settings defaults");
+        Check(Mathf.IsEqualApprox(waveSettings._courantNumber, 0.7f), "wave settings defaults");
         var foamSettings = new CrestSimSettingsFoam();
-        Check(foamSettings.prewarm && Mathf.IsEqualApprox(foamSettings.foam_fade_rate, 0.8f), "foam settings defaults");
+        Check(foamSettings._prewarm && Mathf.IsEqualApprox(foamSettings._foamFadeRate, 0.8f), "foam settings defaults");
         var waterBody = new CrestWaterBodyCs();
         Check(waterBody.ContainsXz(new Vector3(0, 0, 0)), "water body bounds");
         waterBody.Free();
@@ -46,20 +46,21 @@ public partial class CrestCoreSelfTest : Node
         simpleFloating.Free(); boatProbes.Free();
         var shape = new CrestShapeGerstner
         {
-            wave_data = new[] { 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f },
-            weight = 0.5f,
+            WaveData = new[] { 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f },
+            _weight = 0.5f,
         };
         AddChild(shape);
+        Check(shape is ICrestShapeGenerator, "Gerstner strong shape contract");
         Check(Mathf.IsEqualApprox(CrestCollisionCs.SampleDisplacement(Vector2.Zero, 0.0).Y, 1.5f), "Gerstner displacement");
         Check(CrestCollisionCs.SampleHeightAndVelocity(Vector2.Zero, 0.2, 0.016, 0.0f, out _, out _), "collision velocity query");
         shape.Free();
-        var spectrum = new CrestWaveSpectrum { multiplier = 0.03f };
+        var spectrum = new CrestWaveSpectrum { _multiplier = 0.03f };
         Check(spectrum.get_amplitude(8.0f, 8) > 0.0f, "spectrum amplitude");
         var spectrumRng = new RandomNumberGenerator { Seed = 7 };
         Check(spectrum.generate_wave_data(2, spectrumRng).Count == CrestWaveSpectrum.NumOctaves * 2, "spectrum sampling");
         var gerstnerTransform = new CrestLodTransformCs(3, 64);
         gerstnerTransform.UpdateTransforms(8.0f, Vector2.Zero);
-        var fullWeight = new CrestShapeGerstner { spectrum = spectrum, random_seed = 17, weight = 1.0f };
+        var fullWeight = new CrestShapeGerstner { _spectrum = spectrum, _randomSeed = 17, _weight = 1.0f };
         fullWeight.Regenerate(8.0f, gerstnerTransform);
         var fullDisplacement = fullWeight.ComputeDisplacement(new Vector2(2.0f, -3.0f), 0.7);
         Check(fullDisplacement.Length() > 0.0001f, "Gerstner generated displacement");
@@ -75,53 +76,60 @@ public partial class CrestCoreSelfTest : Node
         {
             var fft = new CrestFFTComputeCs();
             Check(fft.Initialize(16), "FFT pipeline initialization");
-            fft.RebuildSpectrum(spectrum, Vector2.Right, 0.145f, 7.0f);
-            fft.AdvanceTime(0.1f, 1.0f, spectrum.chop);
+            fft.RebuildSpectrum(spectrum, Vector2.Right, 20.0f / 3.6f, 0.145f, 7.0f);
+            fft.AdvanceTime(0.1f, 1.0f, spectrum._chop);
             fft.FreeRids();
             for (var i = 0; i < 5; i++)
                 CrestRDComputeCs.FlushDeferredFrees();
         }
-        var foamInput = new CrestRegisterFoamInputCs
-        {
-            rect_size = new Vector2(20.0f, 8.0f),
-            strength = 2.5f,
-            sphere_mode = true,
-        };
+        var foamInput = new CrestRegisterFoamInput { Mesh = new SphereMesh { Radius = 4.0f, Height = 8.0f } };
+        foamInput.MaterialOverride = InputMaterial("foam_add_from_tex", "_Strength", 2.5f);
         AddChild(foamInput);
         var injection = foamInput.GetInjection();
         Check((float)injection["strength"] == 2.5f, "foam input strength");
-        Check((float)injection["mode"] == 1.0f, "foam input mode");
+        Check((float)injection["mode"] == 0.0f && injection["texture"].AsGodotObject() is Texture2D, "foam renderer raster");
         Check(foamInput.IsInGroup("crest_foam_input"), "foam input group");
         foamInput.Free();
-        var flowInput = new CrestRegisterFlowInputCs
-        {
-            fixed_direction = true,
-            speed = 3.0f,
-            direction_degrees = 90.0f,
-        };
+        var flowInput = new CrestRegisterFlowInput { Mesh = new PlaneMesh { Size = new Vector2(10.0f, 10.0f) } };
+        flowInput.MaterialOverride = InputMaterial("flow_fixed_direction", "_Speed", 3.0f, "_Direction", 0.25f);
         AddChild(flowInput);
         var flowInjection = flowInput.GetInjection();
         var fixedVelocity = (Vector2)flowInjection["fixed_velocity"];
         Check(Mathf.IsEqualApprox(fixedVelocity.X, 0.0f) && Mathf.IsEqualApprox(fixedVelocity.Y, 3.0f), "flow direction");
+        Check(flowInjection["texture"].AsGodotObject() is Texture2D, "flow renderer raster");
         Check(flowInput.IsInGroup("crest_flow_input"), "flow input group");
         flowInput.Free();
-        var depthInput = new CrestRegisterSeaFloorDepthInputCs();
+        var depthInput = new CrestRegisterSeaFloorDepthInput { Mesh = new PlaneMesh() };
+        depthInput.MaterialOverride = InputMaterial("ocean_depths");
         AddChild(depthInput);
         Check(depthInput.IsInGroup("crest_depth_input"), "depth input group");
+        Check(depthInput is ICrestLodDataInputProvider, "depth input strong provider contract");
         depthInput.Free();
-        var clipInput = new CrestRegisterClipSurfaceInputCs();
+        var depthCache = new CrestOceanDepthCache();
+        var depthImage = Image.CreateEmpty(2, 2, false, Image.Format.Rf);
+        depthImage.Fill(new Color(-3.2f, 0.0f, 0.0f, 1.0f));
+        depthCache.SetBakedCache(ImageTexture.CreateFromImage(depthImage), new Vector2(1200.0f, 1200.0f));
+        AddChild(depthCache);
+        Check(depthCache is ICrestLodDataInputProvider && depthCache.GetInjections().Count == 1,
+            "depth cache strong provider contract");
+        depthCache.Free();
+        var clipInput = new CrestRegisterClipSurfaceInput { Mesh = new PlaneMesh() };
+        clipInput.MaterialOverride = InputMaterial("clip_surface_remove_area_texture");
         AddChild(clipInput);
         Check((float)clipInput.GetInjection()["mode"] == 0.0f, "clip input mode");
         clipInput.Free();
-        var albedoInput = new CrestRegisterAlbedoInputCs();
+        var albedoInput = new CrestRegisterAlbedoInput { Mesh = new PlaneMesh() };
+        albedoInput.MaterialOverride = InputMaterial("albedo_color", "_Color", new Color(0.2f, 0.4f, 0.6f, 0.8f));
         AddChild(albedoInput);
         Check(albedoInput.IsInGroup("crest_albedo_input"), "albedo input group");
         albedoInput.Free();
-        var shadowInput = new CrestRegisterShadowInputCs();
+        var shadowInput = new CrestRegisterShadowInput { Mesh = new SphereMesh() };
+        shadowInput.MaterialOverride = InputMaterial("shadow_override");
         AddChild(shadowInput);
         Check(shadowInput.IsInGroup("crest_shadow_input"), "shadow input group");
         shadowInput.Free();
-        var animInput = new CrestRegisterAnimWavesInputCs();
+        var animInput = new CrestRegisterAnimWavesInput { Mesh = new PlaneMesh() };
+        animInput.MaterialOverride = InputMaterial("anim_waves_add_from_tex", "_Strength", 1.5f);
         AddChild(animInput);
         Check(animInput.IsInGroup("crest_anim_waves_input"), "animated waves input group");
         animInput.Free();
@@ -187,7 +195,7 @@ public partial class CrestCoreSelfTest : Node
             CrestRDComputeCs.FlushDeferredFrees();
         var floatingViewer = new Node3D { Position = new Vector3(5000.0f, 0.0f, 20.0f) };
         var floatingMarker = new Node3D { Position = new Vector3(100.0f, 0.0f, 0.0f) };
-        var floatingOrigin = new CrestFloatingOrigin { threshold = 4096.0f, viewpoint = floatingViewer };
+        var floatingOrigin = new CrestFloatingOrigin { _threshold = 4096.0f, Viewpoint = floatingViewer };
         AddChild(floatingViewer); AddChild(floatingMarker); AddChild(floatingOrigin);
         floatingOrigin._PhysicsProcess(0.0);
         Check(Mathf.IsEqualApprox(floatingViewer.GlobalPosition.X, 0.0f), "floating viewer shift");
@@ -201,5 +209,24 @@ public partial class CrestCoreSelfTest : Node
     {
         if (!condition)
             throw new System.InvalidOperationException($"Crest C# core self-test failed: {name}");
+    }
+
+    private static ShaderMaterial InputMaterial(string shaderName, params object[] parameters)
+    {
+        var shader = GD.Load<Shader>($"res://addons/crest/shaders/inputs/{shaderName}.gdshader");
+        var material = new ShaderMaterial { Shader = shader };
+        for (var i = 0; i + 1 < parameters.Length; i += 2)
+        {
+            var value = parameters[i + 1] switch
+            {
+                float number => Variant.From(number),
+                int number => Variant.From(number),
+                Color color => Variant.From(color),
+                Texture2D texture => Variant.From(texture),
+                _ => default,
+            };
+            material.SetShaderParameter((string)parameters[i], value);
+        }
+        return material;
     }
 }

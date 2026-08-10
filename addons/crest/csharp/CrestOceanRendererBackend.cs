@@ -1,6 +1,7 @@
 using Godot;
 using Godot.Collections;
 using System.Globalization;
+using System.Collections.Generic;
 
 namespace Crest.Godot;
 
@@ -22,7 +23,7 @@ public partial class CrestOceanRendererBackend : Node3D
     public bool CreateShadowSim { get; set; }
     public bool CreateClipSurfaceData { get; set; }
     public bool CreateAlbedoData { get; set; }
-    public Resource? SimSettingsWave { get; set; }
+    public CrestSimSettingsWave? SimSettingsWave { get; set; }
     public CrestSimSettingsFoam? SimSettingsFoam { get; set; }
     public CrestSimSettingsFlow? SimSettingsFlow { get; set; }
     public CrestSimSettingsShadow? SimSettingsShadow { get; set; }
@@ -52,8 +53,6 @@ public partial class CrestOceanRendererBackend : Node3D
     public float OceanLevel { get; private set; }
     public Rid CascadeBufferCurrent => _cascadeCurrent;
     public Rid CascadeBufferSource => _cascadeSource;
-    public Rid cascade_buffer_current() => _cascadeCurrent;
-    public Rid cascade_buffer_source() => _cascadeSource;
 
     private CrestLodTransformCs? _lodTransform;
     private RenderingDevice? _device;
@@ -84,12 +83,15 @@ public partial class CrestOceanRendererBackend : Node3D
         TilesRoot.Scale = new Vector3(OceanScale, 1.0f, OceanScale);
         _lodTransform.UpdateTransforms(OceanScale, rootXz);
         UploadCascadeData();
+        UpdateAnimatedInputCullMargins();
 
-        Depth?.update_sim(_lodTransform, _cascadeCurrent, CollectInputs("crest_depth_input"));
+        var depthInputs = CollectInputs("crest_depth_input");
+        foreach (var value in CollectInputs("crest_height_input")) depthInputs.Add(value);
+        Depth?.update_sim(_lodTransform, _cascadeCurrent, depthInputs, OceanLevel);
         Flow?.update_sim(_lodTransform, _cascadeCurrent, CollectInputs("crest_flow_input"));
         DynamicWaves?.update_sim(delta, _lodTransform, _cascadeCurrent, _cascadeSource,
-            Flow, Depth, OceanLevel, Gravity, _lodChange, CollectDictionaryCalls("crest_sphere_interaction", "get_sphere_injection"));
-        AnimatedWaves.update(CollectObjects("crest_shape_generator", "evaluate"), Depth, DynamicWaves,
+            Flow, Depth, OceanLevel, Gravity, _lodChange, CollectInputs("crest_dyn_waves_input"));
+        AnimatedWaves.update(CollectShapes(), Depth, DynamicWaves,
             _lodTransform, _cascadeCurrent, OceanScale, OceanLevel, ExternalTime,
             DynamicWaves != null ? SimSettingsWave : null, CollectInputs("crest_anim_waves_input"));
         if (Foam != null)
@@ -104,9 +106,10 @@ public partial class CrestOceanRendererBackend : Node3D
             if (light != null) Shadow.light_dir = -light.GlobalTransform.Basis.Z.Normalized();
             Shadow.update_sim(delta, _lodTransform, _cascadeCurrent, _cascadeSource,
                 AnimatedWaves, OceanLevel, _lodChange, ExternalTime,
-                CollectDictionaryCalls("crest_shadow_input", "get_shadow_caster"));
+                CollectInputs("crest_shadow_input"));
         }
-        ClipSurface?.update_sim(_lodTransform, _cascadeCurrent, CollectInputs("crest_clip_input"));
+        ClipSurface?.update_sim(_lodTransform, _cascadeCurrent, CollectInputs("crest_clip_input"),
+            AnimatedWaves, OceanLevel);
         Albedo?.update_sim(_lodTransform, _cascadeCurrent, CollectInputs("crest_albedo_input"));
         SyncMaterialParams();
     }
@@ -129,7 +132,7 @@ public partial class CrestOceanRendererBackend : Node3D
 
         AnimatedWaves ??= new CrestAnimatedWavesManagerCs();
         AnimatedWaves.init_mgr(LodDataResolution, LodCount);
-        if (CreateFoamSim) (Foam ??= new CrestFoamSimulationManagerCs()).init_mgr(LodDataResolution, LodCount, SimSettingsFoam);
+        if (CreateFoamSim) (Foam ??= new CrestFoamSimulationManagerCs()).InitManager(LodDataResolution, LodCount, SimSettingsFoam);
         if (CreateDynamicWaveSim) (DynamicWaves ??= new CrestDynamicWavesManagerCs()).init_mgr(LodDataResolution, LodCount, SimSettingsWave);
         if (CreateSeaFloorDepthData) (Depth ??= new CrestSeaFloorDepthManagerCs()).init_mgr(LodDataResolution, LodCount);
         if (CreateFlowSim) (Flow ??= new CrestFlowManagerCs()).init_mgr(LodDataResolution, LodCount, SimSettingsFlow);
@@ -163,7 +166,7 @@ public partial class CrestOceanRendererBackend : Node3D
         if (TilesRoot != null && IsInstanceValid(TilesRoot)) TilesRoot.QueueFree();
         TilesRoot = null;
         Chunks.Clear();
-        AnimatedWaves?.free_rids(); Foam?.free_rids(); DynamicWaves?.free_rids();
+        AnimatedWaves?.free_rids(); Foam?.FreeRids(); DynamicWaves?.free_rids();
         Flow?.free_rids(); Depth?.free_rids(); Shadow?.free_rids(); ClipSurface?.free_rids(); Albedo?.free_rids();
         if (_device != null)
         {
@@ -219,25 +222,56 @@ public partial class CrestOceanRendererBackend : Node3D
         return bytes;
     }
 
-    private Array CollectInputs(string group) => CollectDictionaryCalls(group, "get_injection");
-
-    private Array CollectDictionaryCalls(string group, string method)
+    private Array CollectInputs(string group)
     {
-        var result = new Array();
+        var inputs = new Array();
         foreach (var node in GetTree().GetNodesInGroup(group))
         {
-            if (!node.HasMethod(method)) continue;
-            var value = node.Call(method);
-            if (value.VariantType == Variant.Type.Dictionary && value.AsGodotDictionary().Count > 0) result.Add(value);
+            if (node is not ICrestLodDataInputProvider provider) continue;
+            foreach (var item in provider.GetInjections())
+                if (item.VariantType == Variant.Type.Dictionary && item.AsGodotDictionary().Count > 0)
+                    inputs.Add(item);
         }
-        return result;
+        if (group == "crest_clip_input")
+            inputs = new Array(System.Linq.Enumerable.OrderBy(inputs,
+                value => value.VariantType == Variant.Type.Dictionary && value.AsGodotDictionary().ContainsKey("order")
+                    ? (int)value.AsGodotDictionary()["order"] : 0));
+        return inputs;
     }
 
-    private Array CollectObjects(string group, string method)
+    private void UpdateAnimatedInputCullMargins()
     {
-        var result = new Array();
-        foreach (var node in GetTree().GetNodesInGroup(group))
-            if (node.HasMethod(method)) result.Add(node);
+        var horizontal = 0.0f;
+        var vertical = 0.0f;
+        foreach (var node in GetTree().GetNodesInGroup("crest_anim_waves_input"))
+        {
+            if (node is not CrestRegisterAnimWavesInput input) continue;
+            horizontal += Mathf.Max(input._maxDisplacementHorizontal, 0.0f);
+            var inputVertical = Mathf.Max(input._maxDisplacementVertical, 0.0f);
+            if (input._reportRendererBoundsToOceanSystem && input.Mesh != null)
+            {
+                var bounds = input.Mesh.GetAabb();
+                for (var index = 0; index < 8; index++)
+                {
+                    var local = bounds.Position + new Vector3((index & 1) == 0 ? 0 : bounds.Size.X,
+                        (index & 2) == 0 ? 0 : bounds.Size.Y, (index & 4) == 0 ? 0 : bounds.Size.Z);
+                    inputVertical = Mathf.Max(inputVertical,
+                        Mathf.Abs((input.GlobalTransform * local).Y - OceanLevel));
+                }
+            }
+            vertical += inputVertical;
+        }
+        var margin = Mathf.Max(horizontal, vertical);
+        foreach (var value in Chunks)
+            if (value.VariantType == Variant.Type.Object && value.AsGodotObject() is GeometryInstance3D geometry)
+                geometry.ExtraCullMargin = margin;
+    }
+
+    private List<ICrestShapeGenerator> CollectShapes()
+    {
+        var result = new List<ICrestShapeGenerator>();
+        foreach (var node in GetTree().GetNodesInGroup("crest_shape_generator"))
+            if (node is ICrestShapeGenerator shape) result.Add(shape);
         return result;
     }
 

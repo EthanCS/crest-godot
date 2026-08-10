@@ -27,8 +27,6 @@ public partial class CrestFlowManagerCs : RefCounted
         }
     }
 
-    public Variant make_sampled_uniform(int binding) => Data.MakeSampledUniform((uint)binding);
-
     public void update_sim(GodotObject? lodTransform, Rid cascadeCurrent, Array inputs)
     {
         if (_device == null || _clear == null || !_clear.IsValid) return;
@@ -78,6 +76,10 @@ public partial class CrestFlowManagerCs : RefCounted
             input.ContainsKey("strength") ? (float)input["strength"] : 1.0f,
             input.ContainsKey("mode") ? (float)input["mode"] : 0.0f,
             texture != null ? 1.0f : 0.0f,
+            input.ContainsKey("flip_x") ? (float)input["flip_x"] : 0.0f,
+            input.ContainsKey("flip_z") ? (float)input["flip_z"] : 0.0f,
+            input.ContainsKey("feather_enabled") ? (float)input["feather_enabled"] : 0.0f,
+            input.ContainsKey("feather_width") ? (float)input["feather_width"] : 0.1f,
         };
         _inject.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set },

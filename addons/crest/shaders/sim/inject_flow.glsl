@@ -27,6 +27,10 @@ layout(push_constant, std430) uniform Params {
 	float strength;      // flow map strength (mode 0)
 	float mode;          // 0 = add flow map, 1 = fixed direction (replace)
 	float use_texture;   // 0 = no texture (uniform), 1 = sample texture
+	float flip_x;
+	float flip_z;
+	float feather_enabled;
+	float feather_width;
 }
 pc;
 
@@ -47,7 +51,10 @@ void main() {
 	}
 
 	// Feather at the input rect border (Crest: FeatherWeightFromUV, 0.1).
-	float feather = clamp(min(min(uv_input.x, 1.0 - uv_input.x), min(uv_input.y, 1.0 - uv_input.y)) / 0.1, 0.0, 1.0);
+	float feather = 1.0;
+	if (pc.feather_enabled > 0.5) {
+		feather = clamp(min(min(uv_input.x, 1.0 - uv_input.x), min(uv_input.y, 1.0 - uv_input.y)) / max(pc.feather_width, 0.001), 0.0, 1.0);
+	}
 
 	vec4 prev = imageLoad(flow_target, id);
 	vec2 value;
@@ -55,10 +62,13 @@ void main() {
 		// Add flow map: (tex.xy - 0.5) * strength.
 		vec2 tex = pc.use_texture > 0.5 ? textureLod(input_texture, uv_input, 0.0).xy : vec2(0.5);
 		value = (tex - 0.5) * pc.strength * feather;
+		if (pc.flip_x > 0.5) value.x = -value.x;
+		if (pc.flip_z > 0.5) value.y = -value.y;
 		prev.xy += value;
 	} else {
-		value = pc.fixed_velocity * feather;
-		prev.xy = mix(prev.xy, value, feather);
+		float coverage = pc.use_texture > 0.5 ? textureLod(input_texture, uv_input, 0.0).r : 1.0;
+		value = pc.fixed_velocity;
+		prev.xy = mix(prev.xy, value, coverage * feather);
 	}
 	imageStore(flow_target, id, prev);
 }

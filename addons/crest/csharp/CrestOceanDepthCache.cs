@@ -8,21 +8,43 @@ namespace Crest.Godot;
 /// heightmap is used directly; otherwise a top-down viewport captures world
 /// height through the depth-cache override shader.
 [Tool, GlobalClass]
-public partial class CrestOceanDepthCache : Node3D
+public partial class CrestOceanDepthCache : Node3D, ICrestLodDataInputProvider
 {
-    public enum RefreshMode
+    public enum CacheType
     {
         Realtime,
+        Baked,
+    }
+    public enum RefreshMode
+    {
         OnStart,
         OnDemand,
     }
 
-    [Export] public int resolution { get; set; } = 512;
-    [Export] public Vector2 cache_size { get; set; } = new(256.0f, 256.0f);
-    [Export] public float camera_max_terrain_height { get; set; } = 100.0f;
-    [Export] public RefreshMode refresh_mode { get; set; } = RefreshMode.OnStart;
-    [Export(PropertyHint.Layers3DRender)] public uint layers { get; set; } = 1;
-    [Export] public Texture2D? heightmap_texture { get; set; }
+    [Export] public int _version { get; set; }
+    [Export] public CacheType _type { get; set; }
+    [Export] public RefreshMode _refreshMode { get; set; } = RefreshMode.OnStart;
+    [Export(PropertyHint.Layers3DRender)] public uint _layers { get; set; } = 1;
+    [Export] public string[] _layerNames { get; set; } = System.Array.Empty<string>();
+    [Export] public int _resolution { get; set; } = 512;
+    [Export] public float _cameraFarClipPlane { get; set; } = 10000.0f;
+    [Export] public float _cameraMaxTerrainHeight { get; set; } = 100.0f;
+    [Export] public float _terrainPixelErrorOverride { get; set; }
+    [Export] public float _lodBiasOverride { get; set; } = float.PositiveInfinity;
+    [Export] public int _maximumLodLevelOverride { get; set; }
+    [Export] public bool _forceAlwaysUpdateDebug { get; set; }
+    [Export] public bool _hideDepthCacheCam { get; set; } = true;
+    [Export] public Texture2D? _savedCache { get; set; }
+    [Export] public bool _runValidationOnStart { get; set; } = true;
+    [Export] public bool _relative { get; set; }
+    public Vector2 CacheSize { get; set; } = new(256.0f, 256.0f);
+    public void SetCacheSize(Vector2 value) => CacheSize = value;
+    public void SetBakedCache(Texture2D texture, Vector2 size)
+    {
+        _type = CacheType.Baked;
+        _savedCache = texture;
+        CacheSize = size;
+    }
 
     private ImageTexture? _cacheTexture;
     private SubViewport? _viewport;
@@ -36,26 +58,26 @@ public partial class CrestOceanDepthCache : Node3D
 
     public override void _Ready()
     {
-        if (!Engine.IsEditorHint() && refresh_mode == RefreshMode.OnStart)
+        if (!Engine.IsEditorHint() && _type == CacheType.Realtime && _refreshMode == RefreshMode.OnStart)
             PopulateCache();
     }
 
     public override void _Process(double delta)
     {
         _ = delta;
-        if (!Engine.IsEditorHint() && refresh_mode == RefreshMode.Realtime)
+        if (!Engine.IsEditorHint() && _forceAlwaysUpdateDebug && _type == CacheType.Realtime)
             PopulateCache();
     }
 
     public Dictionary GetInjection()
     {
-        var useHeightmap = heightmap_texture != null;
+        var useHeightmap = _type == CacheType.Baked && _savedCache != null;
         return new Dictionary
         {
             ["rect_center"] = new Vector2(GlobalPosition.X, GlobalPosition.Z),
-            ["rect_half_size"] = cache_size * 0.5f,
+            ["rect_half_size"] = CacheSize * 0.5f,
 #pragma warning disable CS8604
-            ["texture"] = useHeightmap ? heightmap_texture : _cacheTexture,
+            ["texture"] = useHeightmap ? _savedCache : _cacheTexture,
 #pragma warning restore CS8604
             ["height_offset"] = useHeightmap ? GlobalPosition.Y : 0.0f,
             ["sea_level_offset"] = 0.0f,
@@ -63,9 +85,17 @@ public partial class CrestOceanDepthCache : Node3D
         };
     }
 
+    public Array GetInjections()
+    {
+        var result = new Array();
+        var injection = GetInjection();
+        if (injection.Count > 0) result.Add(injection);
+        return result;
+    }
+
     public async void PopulateCache()
     {
-        if (Engine.IsEditorHint() || heightmap_texture != null || _captureInFlight)
+        if (Engine.IsEditorHint() || _type == CacheType.Baked || _captureInFlight)
             return;
         _captureInFlight = true;
         EnsureCaptureRig();
@@ -134,20 +164,20 @@ public partial class CrestOceanDepthCache : Node3D
             AddChild(_viewport, false, InternalMode.Back);
         }
 
-        var sizeX = Mathf.Max(cache_size.X, 0.01f);
-        var sizeY = Mathf.Max(cache_size.Y, 0.01f);
+        var sizeX = Mathf.Max(CacheSize.X, 0.01f);
+        var sizeY = Mathf.Max(CacheSize.Y, 0.01f);
         var longest = Mathf.Max(sizeX, sizeY);
         _viewport.Size = new Vector2I(
-            Mathf.Max(1, Mathf.RoundToInt(resolution * sizeX / longest)),
-            Mathf.Max(1, Mathf.RoundToInt(resolution * sizeY / longest)));
+            Mathf.Max(1, Mathf.RoundToInt(_resolution * sizeX / longest)),
+            Mathf.Max(1, Mathf.RoundToInt(_resolution * sizeY / longest)));
         _camera!.Size = sizeY;
         _camera.Near = 0.05f;
-        _camera.Far = camera_max_terrain_height + 1000.0f;
-        _camera.CullMask = layers;
-        _camera.GlobalPosition = GlobalPosition + new Vector3(0.0f, camera_max_terrain_height, 0.0f);
+        _camera.Far = _cameraFarClipPlane;
+        _camera.CullMask = _layers;
+        _camera.GlobalPosition = GlobalPosition + new Vector3(0.0f, _cameraMaxTerrainHeight, 0.0f);
         _camera.GlobalRotation = new Vector3(-Mathf.Pi * 0.5f, 0.0f, 0.0f);
 
-        var heightSpan = Mathf.Max(1000.0f, camera_max_terrain_height);
+        var heightSpan = Mathf.Max(1000.0f, _cameraMaxTerrainHeight);
         _captureHeightMin = GlobalPosition.Y - heightSpan;
         var heightMax = GlobalPosition.Y + heightSpan;
         _captureHeightRange = Mathf.Max(heightMax - _captureHeightMin, 0.01f);
@@ -172,7 +202,7 @@ public partial class CrestOceanDepthCache : Node3D
         if (root == null) return result;
         foreach (var node in root.FindChildren("*", "GeometryInstance3D", true, false))
         {
-            if (node is not GeometryInstance3D geometry || (geometry.Layers & layers) == 0)
+            if (node is not GeometryInstance3D geometry || (geometry.Layers & _layers) == 0)
                 continue;
             if (geometry is CrestOceanChunkRendererCs) continue;
             result.Add(geometry);

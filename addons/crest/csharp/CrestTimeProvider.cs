@@ -3,43 +3,41 @@ using Godot;
 namespace Crest.Godot;
 
 /// <summary>
-/// C# implementation of Crest's simulation clock. Kept API-compatible with
-/// the GDScript provider so callers can migrate one subsystem at a time.
+/// C# implementation of Crest's simulation clock.
 /// </summary>
 [GlobalClass]
 public partial class CrestTimeProviderCs : RefCounted
 {
     public static CrestTimeProviderCs? GlobalProvider { get; set; }
 
-    // Lower-case wrappers keep calls source-compatible with the GDScript API.
-    public static CrestTimeProviderCs? get_global_provider() => GlobalProvider;
-    public static void set_global_provider(CrestTimeProviderCs? value) => GlobalProvider = value;
+    [Export] public int _version { get; set; }
+    [Export] public bool _paused { get; set; }
+    [Export] public bool _overrideTime { get; set; }
+    [Export] public float _time { get; set; }
+    [Export] public bool _overrideDeltaTime { get; set; }
+    [Export] public float _deltaTime { get; set; }
+    public bool UseCustomTime { get => _overrideTime; set => _overrideTime = value; }
+    public double CustomTime { get => _time; set => _time = (float)value; }
+    public double TimeScale { get; set; } = 1.0;
+    public bool Paused { get => _paused; set => _paused = value; }
 
-    [Export] public bool UseCustomTime { get; set; }
-    [Export] public double CustomTime { get; set; }
-    [Export] public double TimeScale { get; set; } = 1.0;
-    [Export] public bool Paused { get; set; }
-
-    private double _time;
+    private double _timeInternal;
 
     public void Advance(double delta)
     {
         if (Paused)
             return;
         if (UseCustomTime)
-            _time = CustomTime;
+            _timeInternal = CustomTime;
         else
-            _time += delta * TimeScale;
+            _timeInternal += (_overrideDeltaTime ? _deltaTime : delta) * TimeScale;
     }
 
-    public double CurrentTime() => UseCustomTime ? CustomTime : _time;
-
-    public void advance(double delta) => Advance(delta);
-    public double current_time() => CurrentTime();
+    public double CurrentTime() => UseCustomTime ? CustomTime : _timeInternal;
 
     public void Reset(double value = 0.0)
     {
-        _time = value;
+        _timeInternal = value;
         if (UseCustomTime)
             CustomTime = value;
     }

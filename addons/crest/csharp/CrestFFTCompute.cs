@@ -46,17 +46,18 @@ public partial class CrestFFTComputeCs : RefCounted
         return _init?.IsValid == true && _update?.IsValid == true && _ifft?.IsValid == true && _sample?.IsValid == true;
     }
 
-    public void RebuildSpectrum(CrestWaveSpectrum spectrum, Vector2 windDirection, float turbulence, float seed)
+    public void RebuildSpectrum(CrestWaveSpectrum spectrum, Vector2 windDirection, float windSpeed,
+        float turbulence, float seed)
     {
         if (_device == null || _init == null) return;
         var controls = new float[CrestWaveSpectrum.NumOctaves];
         for (var i = 0; i < controls.Length; i++)
-            controls[i] = i < spectrum.power_disabled.Count && spectrum.power_disabled[i] ? 0.0f :
-                Mathf.Pow(10.0f, i < spectrum.power_log.Length ? spectrum.power_log[i] : -8.0f) * spectrum.multiplier * spectrum.multiplier;
+            controls[i] = i < spectrum._powerDisabled.Count && spectrum._powerDisabled[i] ? 0.0f :
+                Mathf.Pow(10.0f, i < spectrum._powerLog.Length ? spectrum._powerLog[i] : -8.0f) * spectrum._multiplier * spectrum._multiplier;
         _device.BufferUpdate(_controls, 0, (uint)(controls.Length * 4), FloatsToBytes(controls));
         var set = _init.MakeUniformSet(new Array<RDUniform> { ImageUniform(0, _spectrumInit), StorageUniform(1, _controls) });
-        var push = new[] { (float)Resolution, (float)CascadeCount, CrestConstantsCs.Gravity * spectrum.gravity_scale,
-            spectrum.wind_speed, windDirection.X, windDirection.Y, turbulence, seed };
+        var push = new[] { (float)Resolution, (float)CascadeCount, CrestConstantsCs.Gravity * spectrum._gravityScale,
+            windSpeed, windDirection.X, windDirection.Y, turbulence, seed };
         _init.Dispatch(Groups(), Groups(), CascadeCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set }, CrestRDComputeCs.PackPushConstants(push));
         CrestRDComputeCs.FreeUniformSetDeferred(_device, set);

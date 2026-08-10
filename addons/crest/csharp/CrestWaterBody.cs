@@ -7,8 +7,12 @@ namespace Crest.Godot;
 [Tool, GlobalClass]
 public partial class CrestWaterBodyCs : Node3D
 {
-    [Export] public bool auto_calculate_bounds { get; set; }
-    [Export] public Aabb bounds { get; set; } = new(new Vector3(-50, -1, -50), new Vector3(100, 2, 100));
+    [Export] public int _version { get; set; }
+    [Export] public bool _runValidationOnStart { get; set; } = true;
+    [Export] public bool _registerWithClipSurfaceData { get; set; } = true;
+    [Export] public ShaderMaterial? _overrideMaterial { get; set; }
+    public bool AutoCalculateBounds { get; set; }
+    public Aabb Bounds { get; set; } = new(new Vector3(-50, -1, -50), new Vector3(100, 2, 100));
 
     private static readonly List<CrestWaterBodyCs> Bodies = new();
     public static IReadOnlyList<CrestWaterBodyCs> GetBodies() => Bodies;
@@ -20,5 +24,5 @@ public partial class CrestWaterBodyCs : Node3D
 
     public override void _ExitTree() => Bodies.Remove(this);
 
-    public bool ContainsXz(Vector3 point) => bounds.HasPoint(point);
+    public bool ContainsXz(Vector3 point) => Bounds.HasPoint(point);
 }

@@ -10,10 +10,22 @@ public partial class CrestUnderwaterRenderer : Node3D
     private const float MeniscusRange = 2.0f;
     private static readonly Vector3 BaseFogDensity = new(0.9f, 0.3f, 0.35f);
 
-    [Export] public bool enabled { get; set; } = true;
-    [Export] public bool meniscus_enabled { get; set; } = true;
-    [Export] public float depth_fog_density_factor { get; set; } = 1.0f;
-    [Export] public Camera3D? camera { get; set; }
+    [Export] public int _version { get; set; }
+    [Export] public int _mode { get; set; }
+    [Export] public int _layer { get; set; } = 4;
+    [Export] public bool _overlay { get; set; }
+    [Export(PropertyHint.Range, "0,13,1")] public int _filterOceanData { get; set; } = 13;
+    [Export] public bool _meniscus { get; set; } = true;
+    [Export(PropertyHint.Range, "0.01,1,0.01")] public float _depthFogDensityFactor { get; set; } = 1.0f;
+    [Export] public MeshInstance3D? _volumeGeometry { get; set; }
+    [Export] public bool _invertCulling { get; set; }
+    [Export] public bool _enableShaderAPI { get; set; }
+    [Export] public bool _copyOceanMaterialParamsEachFrame { get; set; } = true;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _farPlaneMultiplier { get; set; } = 0.68f;
+    [Export] public CrestUnderwaterDebugFields _debug { get; set; } = new();
+
+    public bool Enabled { get; set; } = true;
+    public Camera3D? Camera { get; set; }
 
     private MeshInstance3D? _meshInstance;
     private ShaderMaterial? _material;
@@ -29,11 +41,11 @@ public partial class CrestUnderwaterRenderer : Node3D
     public override void _Process(double delta)
     {
         if (Engine.IsEditorHint() || _meshInstance == null || _material == null) return;
-        var activeCamera = camera ?? GetViewport().GetCamera3D();
+        var activeCamera = Camera ?? GetViewport().GetCamera3D();
         var underwater = false;
         var waterHeight = CrestOceanRendererFacade.Instance?.OceanLevel ?? 0.0f;
         var ocean = CrestOceanRendererFacade.Instance;
-        if (enabled && activeCamera != null && ocean != null)
+        if (Enabled && activeCamera != null && ocean != null)
         {
             CrestCollisionCs.SampleHeight(new Vector2(activeCamera.GlobalPosition.X,
                 activeCamera.GlobalPosition.Z), ocean.CurrentTime, ocean.OceanLevel, out waterHeight);
@@ -70,7 +82,7 @@ public partial class CrestUnderwaterRenderer : Node3D
     private void SyncShader(Camera3D activeCamera, float waterHeight)
     {
         _material!.SetShaderParameter("effect_strength", _fade);
-        _material.SetShaderParameter("depth_fog_density", BaseFogDensity * depth_fog_density_factor);
+        _material.SetShaderParameter("depth_fog_density", BaseFogDensity * _depthFogDensityFactor);
         _material.SetShaderParameter("diffuse", new Vector3(0.0f, 0.0027f, 0.170f));
         _material.SetShaderParameter("diffuse_grazing", new Vector3(0.0f, 0.0039f, 0.169f));
         _material.SetShaderParameter("subsurface_colour", new Vector3(0.0885f, 0.497f, 0.456f));
@@ -90,7 +102,7 @@ public partial class CrestUnderwaterRenderer : Node3D
 
         var meniscus = 0.0f;
         var waterlineY = -1.0f;
-        if (meniscus_enabled)
+        if (_meniscus)
         {
             var heightAbove = activeCamera.GlobalPosition.Y - waterHeight;
             meniscus = Mathf.Clamp(1.0f - Mathf.Abs(heightAbove) / MeniscusRange, 0.0f, 1.0f);
@@ -122,4 +134,14 @@ public partial class CrestUnderwaterRenderer : Node3D
     }
 
     private static Vector3 ColorToVector(Color color) => new(color.R, color.G, color.B);
+}
+
+[GlobalClass]
+public partial class CrestUnderwaterDebugFields : Resource
+{
+    [Export] public bool _viewOceanMask { get; set; }
+    [Export] public bool _disableOceanMask { get; set; }
+    [Export] public bool _viewStencil { get; set; }
+    [Export] public bool _disableHeightAboveWaterOptimization { get; set; }
+    [Export] public bool _disableArtifactCorrection { get; set; }
 }

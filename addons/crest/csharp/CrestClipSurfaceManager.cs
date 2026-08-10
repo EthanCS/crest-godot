@@ -15,6 +15,7 @@ public partial class CrestClipSurfaceManagerCs : RefCounted
     private CrestRDComputeCs? _inject;
     private readonly System.Collections.Generic.Dictionary<ulong, Rid> _textureCache = new();
     private Rid _fallbackTexture;
+    private Rid _fallbackAnimatedWaves;
 
     public void init_mgr(int resolution, int layers, Resource? settings = null)
     {
@@ -29,10 +30,10 @@ public partial class CrestClipSurfaceManagerCs : RefCounted
         }
     }
 
-    public Variant make_sampled_uniform(int binding) => Data.MakeSampledUniform((uint)binding);
-
-    public void update_sim(GodotObject? lodTransform, Rid cascadeCurrent, Array inputs)
+    public void update_sim(CrestLodTransformCs lodTransform, Rid cascadeCurrent, Array inputs,
+        CrestAnimatedWavesManagerCs? animatedWavesManager = null, double oceanLevel = 0.0)
     {
+        _ = lodTransform;
         if (_device == null || _clear == null || !_clear.IsValid) return;
         var clearSet = _clear.MakeUniformSet(new Array<RDUniform> { Data.MakeImageUniform(0, false) });
         _clear.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
@@ -42,7 +43,7 @@ public partial class CrestClipSurfaceManagerCs : RefCounted
         if (_inject == null || !_inject.IsValid) return;
         foreach (var value in inputs)
             if (value.VariantType == Variant.Type.Dictionary)
-                DispatchInput(cascadeCurrent, value.AsGodotDictionary());
+                DispatchInput(cascadeCurrent, value.AsGodotDictionary(), animatedWavesManager, (float)oceanLevel);
     }
 
     public void free_rids()
@@ -53,26 +54,53 @@ public partial class CrestClipSurfaceManagerCs : RefCounted
             foreach (var rid in _textureCache.Values)
                 if (rid.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, rid);
             if (_fallbackTexture.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, _fallbackTexture);
+            if (_fallbackAnimatedWaves.IsValid) CrestRDComputeCs.FreeRidDeferred(_device, _fallbackAnimatedWaves);
         }
-        _textureCache.Clear(); _fallbackTexture = new Rid(); Data.FreeRids();
+        _textureCache.Clear(); _fallbackTexture = new Rid(); _fallbackAnimatedWaves = new Rid(); Data.FreeRids();
     }
 
-    private void DispatchInput(Rid cascadeCurrent, global::Godot.Collections.Dictionary input)
+    private void DispatchInput(Rid cascadeCurrent, global::Godot.Collections.Dictionary input,
+        CrestAnimatedWavesManagerCs? animatedWavesManager, float oceanLevel)
     {
         var texture = GetTexture(input);
         var texUniform = new RDUniform { UniformType = RenderingDevice.UniformType.SamplerWithTexture, Binding = 1 };
         texUniform.AddId(Data.Sampler); texUniform.AddId(TextureRid(texture));
+        var animated = new RDUniform { UniformType = RenderingDevice.UniformType.SamplerWithTexture, Binding = 3 };
+        animated.AddId(Data.Sampler); animated.AddId(AnimatedWavesRid(animatedWavesManager));
         var set = _inject!.MakeUniformSet(new Array<RDUniform>
         {
-            StorageUniform(cascadeCurrent), texUniform, Data.MakeImageUniform(2, false),
+            StorageUniform(cascadeCurrent), texUniform, Data.MakeImageUniform(2, false), animated,
         });
         var center = input.ContainsKey("rect_center") ? (Vector2)input["rect_center"] : Vector2.Zero;
         var half = input.ContainsKey("rect_half_size") ? (Vector2)input["rect_half_size"] : Vector2.One;
+        var inverse = input.ContainsKey("primitive_inverse") ? (Transform3D)input["primitive_inverse"] : Transform3D.Identity;
         var values = new[] { (float)Data.Resolution, (float)Data.LayerCount, center.X, center.Y, half.X, half.Y,
-            input.ContainsKey("mode") ? (float)input["mode"] : 0.0f, texture != null ? 1.0f : 0.0f };
+            input.ContainsKey("mode") ? (float)input["mode"] : 0.0f, texture != null ? 1.0f : 0.0f,
+            input.ContainsKey("primitive") ? (float)input["primitive"] : -1.0f,
+            input.ContainsKey("displacement_iterations") ? (float)input["displacement_iterations"] : 4.0f,
+            oceanLevel, 0.0f,
+            inverse.Basis.X.X, inverse.Basis.Y.X, inverse.Basis.Z.X, inverse.Origin.X,
+            inverse.Basis.X.Y, inverse.Basis.Y.Y, inverse.Basis.Z.Y, inverse.Origin.Y,
+            inverse.Basis.X.Z, inverse.Basis.Y.Z, inverse.Basis.Z.Z, inverse.Origin.Z };
         _inject.Dispatch(Groups(), Groups(), (uint)Data.LayerCount,
             new System.Collections.Generic.Dictionary<uint, Rid> { [0] = set }, CrestRDComputeCs.PackPushConstants(values));
         CrestRDComputeCs.FreeUniformSetDeferred(_device!, set);
+    }
+
+    private Rid AnimatedWavesRid(CrestAnimatedWavesManagerCs? manager)
+    {
+        if (manager != null && manager.Data.CurrentTexture().IsValid)
+            return manager.Data.CurrentTexture();
+        if (_device == null || _fallbackAnimatedWaves.IsValid) return _fallbackAnimatedWaves;
+        var format = new RDTextureFormat
+        {
+            Format = RenderingDevice.DataFormat.R16G16B16A16Sfloat, Width = 1, Height = 1, ArrayLayers = 2,
+            TextureType = RenderingDevice.TextureType.Type2DArray,
+            UsageBits = RenderingDevice.TextureUsageBits.SamplingBit | RenderingDevice.TextureUsageBits.CanUpdateBit,
+        };
+        _fallbackAnimatedWaves = _device.TextureCreate(format, new RDTextureView(),
+            new Array<byte[]> { new byte[8], new byte[8] });
+        return _fallbackAnimatedWaves;
     }
 
     private uint Groups() => (uint)Mathf.CeilToInt(Data.Resolution / 8.0f);

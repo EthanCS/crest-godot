@@ -6,16 +6,17 @@ namespace Crest.Godot;
 [Tool]
 public partial class CrestSimpleFloatingObject : CrestFloatingObjectBase
 {
-    [Export] public float raise_object { get; set; } = 1.0f;
-    [Export] public float buoyancy_coeff { get; set; } = 3.0f;
-    [Export] public float buoyancy_torque { get; set; } = 8.0f;
-    [Export] public float accelerate_downhill { get; set; }
-    [Export] public float maximum_buoyancy_force { get; set; }
-    [Export] public float force_height_offset { get; set; } = -0.3f;
-    [Export] public float drag_in_water_up { get; set; } = 3.0f;
-    [Export] public float drag_in_water_right { get; set; } = 2.0f;
-    [Export] public float drag_in_water_forward { get; set; } = 1.0f;
-    [Export] public float drag_in_water_rotational { get; set; } = 0.2f;
+    [Export] public float _raiseObject { get; set; } = 1.0f;
+    [Export] public float _buoyancyCoeff { get; set; } = 3.0f;
+    [Export] public float _boyancyTorque { get; set; } = 8.0f;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float _accelerateDownhill { get; set; }
+    [Export] public float _maximumBuoyancyForce { get; set; } = float.PositiveInfinity;
+    [Export] public float _objectWidth { get; set; } = 3.0f;
+    [Export] public float _forceHeightOffset { get; set; } = -0.3f;
+    [Export] public float _dragInWaterUp { get; set; } = 3.0f;
+    [Export] public float _dragInWaterRight { get; set; } = 2.0f;
+    [Export] public float _dragInWaterForward { get; set; } = 1.0f;
+    [Export] public float _dragInWaterRotational { get; set; } = 0.2f;
 
     private RigidBody3D? _body;
     public bool InWater { get; private set; }
@@ -37,33 +38,33 @@ public partial class CrestSimpleFloatingObject : CrestFloatingObjectBase
         var xz = new Vector2(position.X, position.Z);
         var time = ocean.CurrentTime;
         var displacement = CrestCollisionCs.SampleDisplacement(xz, time);
-        var normal = CrestCollisionCs.SampleNormal(xz, time, Mathf.Max(object_width * 0.5f, 0.1f));
+        var normal = CrestCollisionCs.SampleNormal(xz, time, Mathf.Max(_objectWidth * 0.5f, 0.1f));
         CrestCollisionCs.SampleHeightAndVelocity(xz, time, delta, ocean.OceanLevel, out _, out var waterVelocityY);
         var relativeVelocity = _body.LinearVelocity - new Vector3(0, waterVelocityY, 0);
-        var bottomDepth = displacement.Y + ocean.OceanLevel - position.Y + raise_object;
+        var bottomDepth = displacement.Y + ocean.OceanLevel - position.Y + _raiseObject;
         InWater = bottomDepth > 0.0f;
         InWaterState = InWater;
         if (!InWater) return;
 
         var mass = _body.Mass;
         var gravity = (float)ProjectSettings.GetSetting("physics/3d/default_gravity");
-        var buoyancy = new Vector3(0, buoyancy_coeff * bottomDepth * bottomDepth * bottomDepth, 0);
-        if (maximum_buoyancy_force > 0.0f)
-            buoyancy = buoyancy.LimitLength(maximum_buoyancy_force);
+        var buoyancy = new Vector3(0, _buoyancyCoeff * bottomDepth * bottomDepth * bottomDepth, 0);
+        if (_maximumBuoyancyForce > 0.0f)
+            buoyancy = buoyancy.LimitLength(_maximumBuoyancyForce);
         _body.ApplyCentralForce(buoyancy * mass);
-        if (accelerate_downhill > 0.0f)
-            _body.ApplyCentralForce(accelerate_downhill * gravity * new Vector3(normal.X, 0, normal.Z) * mass);
+        if (_accelerateDownhill > 0.0f)
+            _body.ApplyCentralForce(_accelerateDownhill * gravity * new Vector3(normal.X, 0, normal.Z) * mass);
 
-        var forcePosition = position + force_height_offset * Vector3.Up;
+        var forcePosition = position + _forceHeightOffset * Vector3.Up;
         var offset = forcePosition - position;
-        var upDrag = drag_in_water_up * -relativeVelocity.Dot(Vector3.Up) * Vector3.Up * mass;
+        var upDrag = _dragInWaterUp * -relativeVelocity.Dot(Vector3.Up) * Vector3.Up * mass;
         _body.ApplyForce(upDrag, offset);
         var right = _body.GlobalTransform.Basis.X;
-        _body.ApplyForce(drag_in_water_right * -relativeVelocity.Dot(right) * right * mass, offset);
+        _body.ApplyForce(_dragInWaterRight * -relativeVelocity.Dot(right) * right * mass, offset);
         var forward = -_body.GlobalTransform.Basis.Z;
-        _body.ApplyForce(drag_in_water_forward * -relativeVelocity.Dot(forward) * forward * mass, offset);
-        _body.ApplyTorque(_body.GlobalTransform.Basis.Y.Cross(normal) * buoyancy_torque * mass);
-        _body.ApplyTorque(-drag_in_water_rotational * _body.AngularVelocity * mass);
+        _body.ApplyForce(_dragInWaterForward * -relativeVelocity.Dot(forward) * forward * mass, offset);
+        _body.ApplyTorque(_body.GlobalTransform.Basis.Y.Cross(normal) * _boyancyTorque * mass);
+        _body.ApplyTorque(-_dragInWaterRotational * _body.AngularVelocity * mass);
     }
 
     private RigidBody3D? FindBody()
