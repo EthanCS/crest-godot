@@ -18,7 +18,7 @@ cascades;
 struct Sphere {
 	// pos.x, pos.z, radius, weight
 	vec4 v0;
-	// vel.x, vel.y, vel.z, unused
+	// vel.x, vel.y, vel.z, large-wave culling multiplier
 	vec4 v1;
 };
 
@@ -63,8 +63,13 @@ void main() {
 	for (int i = 0; i < count; i++) {
 		Sphere s = spheres[i];
 		float radius = s.v0.z;
-		// Cull: sphere not representable at this cascade resolution.
-		if (radius < cascade.texel_width) {
+		// Fade interactions in as their footprint becomes representable by this
+		// cascade. A binary radius/texel-width test makes an entire wake pop at
+		// an LOD scale change even though the ocean surface blends its cascades.
+		// The 0.5..1.5 interval spans roughly one neighbouring-cascade step.
+		float footprint_to_texel = radius * s.v1.w / cascade.texel_width;
+		float lod_weight = smoothstep(0.5, 1.5, footprint_to_texel);
+		if (lod_weight <= 0.0) {
 			continue;
 		}
 		vec2 offset = world_pos - s.v0.xy;
@@ -88,7 +93,7 @@ void main() {
 			}
 		}
 
-		v_add += s.v0.w * (force_up_down + force_horiz) * 0.2 / min_wavelength;
+		v_add += lod_weight * s.v0.w * (force_up_down + force_horiz) * 0.2 / min_wavelength;
 	}
 
 	if (abs(v_add) > 1e-6) {

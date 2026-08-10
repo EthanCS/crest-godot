@@ -293,6 +293,7 @@ public partial class CrestOceanRendererFacade : Node3D
 
     public float GetOceanScale() => _backend?.OceanScale ?? _minScale;
     public float GetViewerAltitudeLevelAlpha() => _backend?.ViewerAltitudeLevelAlpha ?? 0.0f;
+    public float GetViewerScaleTransitionBlend() => _backend?.ViewerScaleTransitionBlend ?? 0.0f;
     public double GetCurrentTime() => CurrentTime;
     public Rid CascadeBufferCurrent => _backend?.CascadeBufferCurrent ?? new Rid();
     public Rid CascadeBufferSource => _backend?.CascadeBufferSource ?? new Rid();

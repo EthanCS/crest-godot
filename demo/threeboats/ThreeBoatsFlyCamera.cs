@@ -6,6 +6,7 @@ public partial class ThreeBoatsFlyCamera : Camera3D
 {
     [Export] public float MoveSpeed { get; set; } = 20.0f;
     [Export] public float MouseSensitivity { get; set; } = 0.0025f;
+    public bool NavigationEnabled { get; set; } = true;
 
     private float _yaw;
     private float _pitch;
@@ -20,6 +21,7 @@ public partial class ThreeBoatsFlyCamera : Camera3D
 
     public override void _UnhandledInput(InputEvent inputEvent)
     {
+        if (!NavigationEnabled) return;
         if (inputEvent is InputEventMouseButton button && button.Pressed)
         {
             Input.MouseMode = Input.MouseModeEnum.Captured;
@@ -41,6 +43,7 @@ public partial class ThreeBoatsFlyCamera : Camera3D
 
     public override void _Process(double delta)
     {
+        if (!NavigationEnabled) return;
         var direction = Vector3.Zero;
         if (Input.IsKeyPressed(Key.W)) direction -= GlobalBasis.Z;
         if (Input.IsKeyPressed(Key.S)) direction += GlobalBasis.Z;

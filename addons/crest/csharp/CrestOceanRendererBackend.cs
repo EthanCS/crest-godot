@@ -49,6 +49,7 @@ public partial class CrestOceanRendererBackend : Node3D
 
     public float OceanScale { get; private set; } = 8.0f;
     public float ViewerAltitudeLevelAlpha { get; private set; }
+    public float ViewerScaleTransitionBlend { get; private set; }
     public float ViewerHeightAboveWater { get; private set; }
     public float OceanLevel { get; private set; }
     public Rid CascadeBufferCurrent => _cascadeCurrent;
@@ -198,6 +199,11 @@ public partial class CrestOceanRendererBackend : Node3D
         _lodChange = Mathf.IsEqualApprox(newScale, OceanScale) ? 0.0f :
             Mathf.Round(Mathf.Log(newScale / OceanScale) / Mathf.Log(2.0f));
         OceanScale = newScale;
+        // Keep the persistent LODs stable for most of the altitude band and
+        // crossfade only immediately before the next power-of-two scale.
+        var transition = Mathf.Clamp((ViewerAltitudeLevelAlpha - 0.9f) / 0.1f, 0.0f, 1.0f);
+        ViewerScaleTransitionBlend = OceanScale < MaxScale
+            ? transition * transition * (3.0f - 2.0f * transition) : 0.0f;
     }
 
     private Vector3 GetViewerPosition()
@@ -371,7 +377,7 @@ public partial class CrestOceanRendererBackend : Node3D
         var blackPoint = 0.4f / (density / 8.0f);
         OceanMaterial.SetShaderParameter("lod_alpha_black_point_fade", blackPoint);
         OceanMaterial.SetShaderParameter("lod_alpha_black_point_white_point_fade", 1.0f - 2.0f * blackPoint);
-        OceanMaterial.SetShaderParameter("mesh_scale_lerp", ViewerAltitudeLevelAlpha);
+        OceanMaterial.SetShaderParameter("mesh_scale_lerp", ViewerScaleTransitionBlend);
         OceanMaterial.SetShaderParameter("ocean_level", OceanLevel);
         OceanMaterial.SetShaderParameter("planar_reflection", ExternalPlanarReflection ?? GetFallbackTexture2D());
         OceanMaterial.SetShaderParameter("planar_reflection_intensity", ExternalPlanarReflection != null ? ExternalPlanarReflectionIntensity : 0.0f);

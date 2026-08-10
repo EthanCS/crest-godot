@@ -9,11 +9,23 @@ public partial class ThreeBoatsScene : Node3D
 {
     private readonly Color _boatGray = new(0.5f, 0.5f, 0.5f);
     private ThreeBoatsFlyCamera? _camera;
+    private CrestOceanRendererFacade? _ocean;
     private RigidBody3D? _liner;
     private Label? _label;
     private int _shotFrame = -1;
     private int _frame;
     private bool _wakeCloseup;
+    private bool _wakeOverhead;
+    private float _wakeOverheadHeight = 100.0f;
+    private bool _lodReplay;
+    private int _lodReplayFrame;
+    private string _lodReplayDirectory = "";
+
+    private static readonly Vector3 LodReplayStart = new(-57.385f, 32.457f, 10.075f);
+    private static readonly Vector3 LodReplayEnd = new(-64.869f, 41.402f, 7.249f);
+    private static readonly Vector3 LodReplayRotation = new(-48.189f, -110.683f, 0.0f);
+    private const double LodReplayStartTime = 20.5;
+    private const double LodReplayDuration = 4.0;
 
     public override void _Ready()
     {
@@ -36,15 +48,46 @@ public partial class ThreeBoatsScene : Node3D
     {
         _ = delta;
 
-        if (_wakeCloseup && _camera != null && GetNodeOrNull<RigidBody3D>("Objects/BoatAlignNormal3") is { } boat)
+        if ((_wakeCloseup || _wakeOverhead) && _camera != null &&
+            GetNodeOrNull<RigidBody3D>("Objects/BoatAlignNormal3") is { } boat)
         {
-            _camera.GlobalPosition = boat.GlobalPosition + new Vector3(-12, 7, -12);
+            _camera.GlobalPosition = boat.GlobalPosition +
+                (_wakeOverhead ? new Vector3(0, _wakeOverheadHeight, 0.01f) : new Vector3(-12, 7, -12));
             _camera.LookAt(boat.GlobalPosition);
             _camera.SyncLookAngles();
         }
 
+        if (_lodReplay && _camera != null && _ocean != null)
+        {
+            var replayTime = _ocean.CurrentTime;
+            var alpha = Mathf.Clamp((float)((replayTime - LodReplayStartTime) / LodReplayDuration), 0.0f, 1.0f);
+            _camera.GlobalPosition = LodReplayStart.Lerp(LodReplayEnd, alpha);
+            _camera.GlobalRotationDegrees = LodReplayRotation;
+            _camera.SyncLookAngles();
+
+            if (replayTime >= LodReplayStartTime)
+            {
+                var finalFrame = replayTime >= LodReplayStartTime + LodReplayDuration;
+                var captureIndex = _lodReplayFrame++;
+                CallDeferred(MethodName.CaptureLodReplayFrame, captureIndex, replayTime,
+                    _ocean.GetOceanScale(), _ocean.GetViewerScaleTransitionBlend(), finalFrame);
+                if (finalFrame) _lodReplay = false;
+            }
+        }
+
         if (_label != null)
-            _label.Text = "CREST — THREE BOATS\nClick + mouse: look  |  WASD/QE: fly  |  Shift: fast  |  Esc: release mouse";
+        {
+            var position = _camera?.GlobalPosition ?? Vector3.Zero;
+            var rotation = _camera?.GlobalRotationDegrees ?? Vector3.Zero;
+            var simulationTime = _ocean?.CurrentTime ?? 0.0;
+            var oceanScale = _ocean?.GetOceanScale() ?? 0.0f;
+            var scaleBlend = _ocean?.GetViewerScaleTransitionBlend() ?? 0.0f;
+            _label.Text = "CREST — THREE BOATS\n" +
+                "Click + mouse: look  |  WASD/QE: fly  |  Shift: fast  |  Esc: release mouse\n" +
+                $"Camera XYZ: {position.X:F3}, {position.Y:F3}, {position.Z:F3}\n" +
+                $"Rotation XYZ: {rotation.X:F3}, {rotation.Y:F3}, {rotation.Z:F3} deg\n" +
+                $"Simulation time: {simulationTime:F3} s  |  Ocean LOD: {oceanScale:F0}  blend: {scaleBlend:F3}";
+        }
 
         _frame++;
         if (_frame == _shotFrame)
@@ -55,6 +98,7 @@ public partial class ThreeBoatsScene : Node3D
     {
         var ocean = GetNodeOrNull<CrestOceanRendererFacade>("Main/CrestOceanRenderer");
         if (ocean == null) return;
+        _ocean = ocean;
         ocean._minScale = 8.0f;
         ocean._maxScale = 256.0f;
         ocean._lodDataResolution = 384;
@@ -222,7 +266,8 @@ public partial class ThreeBoatsScene : Node3D
         var wake = new CrestSphereWaterInteraction { Name = "InteractionSphere", Position = position,
             _radius = radius, _weight = weight * godotInteractionGain, _weightUpDownMul = upDownMultiplier,
             _velocityOffset = velocityOffset, _compensateForWaveMotion = compensateForWaves,
-            _teleportSpeed = 500.0f, _maxSpeed = 100.0f };
+            _teleportSpeed = 500.0f, _maxSpeed = 100.0f, _warmUpDuration = 3.0f,
+            _boostLargeWaves = radius <= 3.3f };
         wake.SetFoamStrength(0.7f);
         body.AddChild(wake);
     }
@@ -272,7 +317,46 @@ public partial class ThreeBoatsScene : Node3D
                 _shotFrame = frame;
             else if (arg == "--wake-closeup")
                 _wakeCloseup = true;
+            else if (arg == "--wake-overhead")
+                _wakeOverhead = true;
+            else if (arg.StartsWith("--wake-overhead=") &&
+                float.TryParse(arg.Split('=', 2)[1], out var overheadHeight))
+            {
+                _wakeOverhead = true;
+                _wakeOverheadHeight = Mathf.Max(overheadHeight, 10.0f);
+            }
+            else if (arg.StartsWith("--cam=") && TryParseVector3(arg.Split('=', 2)[1], out var position))
+                _camera!.GlobalPosition = position;
+            else if (arg.StartsWith("--rot=") && TryParseVector3(arg.Split('=', 2)[1], out var rotation))
+            {
+                _camera!.GlobalRotationDegrees = rotation;
+                _camera.SyncLookAngles();
+            }
+            else if (arg == "--lod-replay")
+            {
+                _lodReplay = true;
+                _camera!.NavigationEnabled = false;
+                _camera!.GlobalPosition = LodReplayStart;
+                _camera.GlobalRotationDegrees = LodReplayRotation;
+                _camera.SyncLookAngles();
+                _lodReplayDirectory = $"user://lod_replay_{Godot.Time.GetTicksMsec()}";
+                DirAccess.MakeDirRecursiveAbsolute(ProjectSettings.GlobalizePath(_lodReplayDirectory));
+                GD.Print($"THREEBOATS_LOD_REPLAY_DIR {ProjectSettings.GlobalizePath(_lodReplayDirectory)}");
+            }
         }
+    }
+
+    private static bool TryParseVector3(string value, out Vector3 result)
+    {
+        var parts = value.Split(',', 3);
+        if (parts.Length == 3 && float.TryParse(parts[0], out var x) &&
+            float.TryParse(parts[1], out var y) && float.TryParse(parts[2], out var z))
+        {
+            result = new Vector3(x, y, z);
+            return true;
+        }
+        result = Vector3.Zero;
+        return false;
     }
 
     private void CaptureScreenshot()
@@ -301,5 +385,21 @@ public partial class ThreeBoatsScene : Node3D
             }
         GD.Print($"THREEBOATS_INJECTIONS active={activeInjections} max_speed={maximumInjectionSpeed:F3}");
         GD.Print($"THREEBOATS_SCREENSHOT {ProjectSettings.GlobalizePath(path)}");
+    }
+
+    private void CaptureLodReplayFrame(int index, double simulationTime,
+        float oceanScale, float scaleBlend, bool finalFrame)
+    {
+        var image = GetViewport().GetTexture()?.GetImage();
+        if (image != null && !image.IsEmpty())
+        {
+            var path = $"{_lodReplayDirectory}/frame_{index:D4}.png";
+            image.SavePng(path);
+            var position = _camera?.GlobalPosition ?? Vector3.Zero;
+            GD.Print($"THREEBOATS_LOD_FRAME {index:D4} time={simulationTime:F6} " +
+                $"position={position} scale={oceanScale:F6} blend={scaleBlend:F6} " +
+                $"path={ProjectSettings.GlobalizePath(path)}");
+        }
+        if (finalFrame) GetTree().Quit();
     }
 }

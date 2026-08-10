@@ -20,15 +20,18 @@ public partial class CrestSphereWaterInteraction : Node3D
     [Export] public bool _boostLargeWaves { get; set; }
     [Export] public float _teleportSpeed { get; set; } = 500.0f;
     [Export] public float _maxSpeed { get; set; } = 100.0f;
+    [Export(PropertyHint.Range, "0,10,0.1")] public float _warmUpDuration { get; set; }
     public float FoamStrength { get; set; } = 0.5f;
     public void SetFoamStrength(float value) => FoamStrength = value;
 
     private Vector3 _lastPosition;
     private bool _hasLast;
     private Vector3 _velocity;
+    private float _age;
 
     public override void _EnterTree()
     {
+        _age = 0.0f;
         if (!Active.Contains(this)) Active.Add(this);
         AddToGroup("crest_sphere_interaction_cs");
     }
@@ -38,6 +41,7 @@ public partial class CrestSphereWaterInteraction : Node3D
     public override void _PhysicsProcess(double delta)
     {
         if (Engine.IsEditorHint()) return;
+        _age += (float)delta;
         var position = GlobalPosition;
         if (!_hasLast)
         {
@@ -72,6 +76,11 @@ public partial class CrestSphereWaterInteraction : Node3D
         relativeVelocity.Y -= _compensateForWaveMotion * waterVelocity;
 
         var interactionWeight = 3.75f * _weight / 5.0f;
+        if (_warmUpDuration > 0.0f)
+        {
+            var t = Mathf.Clamp(_age / _warmUpDuration, 0.0f, 1.0f);
+            interactionWeight *= t * t * (3.0f - 2.0f * t);
+        }
         var safeRadius = Mathf.Max(_radius, 0.01f);
         var heightAbove = position.Y - waterHeight;
         if (heightAbove < 0.0f)

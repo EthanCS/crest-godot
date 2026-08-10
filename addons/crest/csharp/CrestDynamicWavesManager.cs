@@ -52,8 +52,13 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
         _timeToSimulate -= count * dt;
         for (var i = 0; i < count; i++)
         {
+            // The cascade index changes only while migrating the previous
+            // frame into the first substep. Applying it again would shift the
+            // data by another slice on every substep and erase wakes at an
+            // ocean-scale transition.
+            var substepLodChange = i == 0 ? (float)lodChange : 0.0f;
             DispatchUpdate(dt, cascadeCurrent, cascadeSource, flowManager, depthManager,
-                (float)oceanLevel, (float)gravity, (float)lodChange, i == 0);
+                (float)oceanLevel, (float)gravity, substepLodChange, i == 0);
             Data.SwapTargets();
             if (dt > 0.0f && CrestSphereWaterInteraction.ActiveInteractions.Count > 0)
                 DispatchSpheres(dt, cascadeCurrent);
@@ -121,7 +126,7 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
         {
             if (count >= MaxSpheres || !sphere.TryGetInjection(out var position, out var velocity,
                 out var radius, out var weight)) continue;
-            WriteSphere(values, count++, position, velocity, radius, weight);
+            WriteSphere(values, count++, position, velocity, radius, weight, sphere._boostLargeWaves);
         }
         if (count == 0) return;
         _device!.BufferUpdate(_sphereBuffer, 0, (uint)(count * 32), FloatsToBytes(values, count * 8));
@@ -148,12 +153,13 @@ public partial class CrestDynamicWavesManagerCs : RefCounted
     }
 
     private static void WriteSphere(float[] values, int index, Vector2 position,
-        Vector3 velocity, float radius, float weight)
+        Vector3 velocity, float radius, float weight, bool boostLargeWaves)
     {
         var offset = index * 8;
         values[offset] = position.X; values[offset + 1] = position.Y;
         values[offset + 2] = radius; values[offset + 3] = weight;
         values[offset + 4] = velocity.X; values[offset + 5] = velocity.Y;
         values[offset + 6] = velocity.Z;
+        values[offset + 7] = boostLargeWaves ? 2.0f : 1.0f;
     }
 }

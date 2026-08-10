@@ -145,8 +145,11 @@ public partial class CrestFoamSimulationManagerCs : RefCounted
         var count = UpdateSchedule((float)delta);
         for (var i = 0; i < count; i++)
         {
+            // LOD migration maps previous-frame slices on the first substep
+            // only. Subsequent substeps already use the current layout.
+            var substepLodChange = i == 0 ? (float)lodChange : 0.0f;
             DispatchUpdateDynamic(LastSubstepDelta, cascadeCurrent, cascadeSource,
-                flow, animatedWaves, depth, (float)oceanLevel, (float)lodChange, i == 0);
+                flow, animatedWaves, depth, (float)oceanLevel, substepLodChange, i == 0);
         }
     }
 
