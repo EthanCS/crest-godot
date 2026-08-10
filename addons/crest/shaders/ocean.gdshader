@@ -140,7 +140,20 @@ void vertex() {
 	vec2 d = abs(world_pos.xz - ocean_center_pos.xz);
 	float taxicab = max(d.x, d.y);
 	float lod_alpha = taxicab / cascade_data_a[slice].z - 1.0;
-	lod_alpha = max((lod_alpha - lod_alpha_black_point_fade) / lod_alpha_black_point_white_point_fade, 0.0);
+	// The next ring's tiles start drawing at 0.5 tile widths from the centre
+	// (this ring's alpha_raw = 0) with alpha 0, so this ring's fine-scale
+	// blend MUST complete by then - otherwise the visible shading jumps from
+	// the dual-cascade blend to 100% of the next cascade at the ring
+	// boundary (a hard shading ring that sweeps with the camera). The default
+	// black point keeps the ramp starting at alpha_raw ~ +0.05, which leaves
+	// the blend unfinished exactly where the layer switch happens. Nudge
+	// slice 0's ramp so it finishes at alpha_raw = 0.
+	float black_point = lod_alpha_black_point_fade;
+	float white_point = lod_alpha_black_point_white_point_fade;
+	if (slice == 0) {
+		black_point = (mesh_scale_lerp - 1.0) * white_point;
+	}
+	lod_alpha = max((lod_alpha - black_point) / white_point, 0.0);
 	// Clamp: outer rings would otherwise morph vertices unboundedly.
 	lod_alpha = min(lod_alpha, 1.0);
 	if (slice == 0) {

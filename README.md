@@ -2,7 +2,7 @@
 
 A port of the **[Crest ocean system](https://github.com/wave-harmonic/crest)**
 (Unity, MIT license, by Wave Harmonic and contributors) to **Godot 4.6**,
-implemented with GDScript + `RenderingDevice` compute shaders.
+implemented in C# with `RenderingDevice` compute shaders.
 
 Crest is a technically advanced ocean framework: a view-following LOD chain
 of cascades, physically-based wave spectra, and a suite of interacting GPU
@@ -55,13 +55,14 @@ that architecture and its feature set for Godot.
 - **Planar reflections** (`CrestOceanPlanarReflection`) — mirrored camera
   capture feeding the surface shader
 - **Buoyancy & queries** — `CrestSimpleFloatingObject`, `CrestBoatProbes`,
-  `CrestSphereWaterInteraction`, and the `CrestCollision` query API
+  `CrestSphereWaterInteraction`, and the `CrestCollisionCs` query API
   (height/normal/velocity sampling, analytic Gerstner mirror)
 - **Time provider** — pause/scale/external clock support
 
 ## Requirements
 
-- Godot **4.6+**, Forward+ or Mobile renderer (RenderingDevice required)
+- Godot **4.6+ .NET/Mono**, Forward+ or Mobile renderer
+  (`RenderingDevice` required)
 - The legacy/Compatibility renderer is not supported
 
 ## Quick start
@@ -76,14 +77,13 @@ that architecture and its feature set for Godot.
 5. Run. Tweak wave and material parameters on the spectrum resource and the
    auto-created ocean material (see `CrestOceanRenderer > ocean_material`).
 
-Minimal code-only setup:
+Minimal C# code-only setup:
 
-```gdscript
-var ocean := CrestOceanRenderer.new()
-add_child(ocean)
-var waves := CrestShapeGerstner.new()
-waves.spectrum = CrestWaveSpectrum.new()
-ocean.add_child(waves)
+```csharp
+var ocean = new CrestOceanRendererFacade();
+AddChild(ocean);
+var waves = new CrestShapeGerstner { spectrum = new CrestWaveSpectrum() };
+ocean.AddChild(waves);
 ```
 
 Useful things to attach:
@@ -100,18 +100,23 @@ Useful things to attach:
 
 Query the water from gameplay code:
 
-```gdscript
-var out := [0.0]
-if CrestCollision.sample_height(Vector2(x, z), out):
-    var water_y: float = out[0]
+```csharp
+var ocean = CrestOceanRendererFacade.Instance;
+if (ocean != null && CrestCollisionCs.SampleHeight(
+    new Vector2(x, z), ocean.CurrentTime, ocean.OceanLevel, out var waterY))
+{
+    // Use waterY.
+}
 ```
 
 ## Demo
 
-`demo/main.tscn` (the project's main scene) shows Gerstner waves over a
-view-following LOD ocean, an island fed by an `CrestOceanDepthCache`
+`demo/main.tscn` (the project's main scene) shows the view-following LOD
+ocean, an island fed by a `CrestOceanDepthCache`
 heightmap, floating objects with buoyancy and wakes, planar reflections and
-the underwater effect. Controls: **WASD/QE + mouse** to fly (Shift = fast),
+the underwater effect. Its serialized Gerstner node currently has zero weight,
+so use a nonzero weight or `CrestShapeFFT` when evaluating wave displacement.
+Controls: **WASD/QE + mouse** to fly (Shift = fast),
 **Space** to pause/resume (camera and HUD stay live, so the frozen frame can
 be inspected from any angle; the HUD shows the frozen ocean time and live
 camera pose), **U** to dive/surface, **F9** for the simulation debug overlay.
@@ -138,7 +143,8 @@ See `AGENTS.md` for contributor notes and platform pitfalls.
   ocean-mask prepass.
 - Collision queries use an exact CPU mirror of the Gerstner evaluation;
   GPU readback queries (needed for exact FFT collisions) are planned.
-- Water bodies / splines / networking providers are not yet ported.
+- Basic AABB water-body registration is present; Unity's spline/provider
+  water-body volumes, spline authoring and networking providers are not ported.
 
 ## Performance
 

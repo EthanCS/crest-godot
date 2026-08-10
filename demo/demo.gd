@@ -1,8 +1,11 @@
 extends Node3D
 ## Demo scene: spawns floating objects on the ocean and shows controls.
 
-const FloaterScript := preload("res://addons/crest/interaction/simple_floating_object.gd")
-const WakeScript := preload("res://addons/crest/interaction/sphere_water_interaction.gd")
+const FloaterScript := preload("res://addons/crest/csharp/CrestSimpleFloatingObject.cs")
+const WakeScript := preload("res://addons/crest/csharp/CrestSphereWaterInteraction.cs")
+const DepthCacheScript := preload("res://addons/crest/csharp/CrestOceanDepthCache.cs")
+const BoatScript := preload("res://demo/CrestDemoBoat.cs")
+const HugeFloaterScript := preload("res://demo/CrestDemoHugeFloater.cs")
 
 @export var floater_count := 8
 
@@ -18,12 +21,15 @@ func _ready() -> void:
 	$CrestOceanDebugGui.process_mode = Node.PROCESS_MODE_PAUSABLE
 	_spawn_shallow_seabed()
 	_spawn_boat()
+	_spawn_huge_object()
 	if "--debug-gui" in OS.get_cmdline_user_args():
 		for i in 15:
 			await get_tree().process_frame
 		$CrestOceanDebugGui.set_overlay_visible(true)
 	# Bright-sea material preset for the demo (plugin defaults stay Crest's).
-	var ocean := $CrestOceanRenderer as CrestOceanRenderer
+	# The scene-facing node is now the C# facade; its material property mirrors
+	# the legacy backend during the incremental runtime migration.
+	var ocean = $CrestOceanRenderer
 	await get_tree().process_frame
 	if ocean.ocean_material:
 		ocean.ocean_material.set_shader_parameter("diffuse", Vector3(0.0, 0.02, 0.30))
@@ -101,7 +107,7 @@ func _spawn_shallow_seabed() -> void:
 	terrain.position = Vector3(island_center.x, 0.0, island_center.y)
 	add_child(terrain)
 
-	var depth_cache := CrestOceanDepthCache.new()
+	var depth_cache := DepthCacheScript.new()
 	depth_cache.heightmap_texture = ImageTexture.create_from_image(img)
 	depth_cache.cache_size = Vector2(size, size)
 	depth_cache.position = Vector3(island_center.x, 0.0, island_center.y)
@@ -112,7 +118,7 @@ func _spawn_shallow_seabed() -> void:
 ## Spawns the little boat that circles the pond and stirs ripples.
 func _spawn_boat() -> void:
 	var boat := Node3D.new()
-	boat.set_script(preload("res://demo/boat.gd"))
+	boat.set_script(BoatScript)
 	boat.set("radius", 12.0)
 	boat.set("speed", 2.0)
 	boat.position = Vector3(12.0, 0.0, 0.0)
@@ -138,11 +144,47 @@ func _spawn_boat() -> void:
 	var wake := Node3D.new()
 	wake.set_script(WakeScript)
 	wake.set("radius", 2.5)
-	wake.set("weight", 30.0)
+	wake.set("weight", 1.0) # Crest default (3.75 * weight / 5)
 	wake.set("foam_strength", 0.7)
 	wake.set("teleport_speed", 200.0)
 	boat.add_child(wake)
 
+
+## Spawns a giant floating crate that rocks with the waves and stirs a
+## large wake via CrestSphereWaterInteraction (dynamic waves sim).
+func _spawn_huge_object() -> void:
+	var huge := RigidBody3D.new()
+	huge.mass = 8000.0
+	huge.linear_damp = 0.05
+	huge.angular_damp = 0.2
+	# Starts on the orbit circle (r=30, 225°).
+	huge.position = Vector3(-21.2, -0.5, -21.2)
+	huge.set_script(HugeFloaterScript)
+	huge.set("orbit_center", Vector2.ZERO)
+	huge.set("orbit_radius", 30.0)
+	huge.set("orbit_speed", 1.5)
+	add_child(huge)
+
+	var hull := MeshInstance3D.new()
+	var hull_mesh := BoxMesh.new()
+	hull_mesh.size = Vector3(30.0, 5.0, 18.0)
+	hull.mesh = hull_mesh
+	hull.material_override = _make_mat(Color(0.42, 0.48, 0.55))
+	huge.add_child(hull)
+
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(30.0, 5.0, 18.0)
+	shape.shape = box
+	huge.add_child(shape)
+
+	var wake := Node3D.new()
+	wake.set_script(WakeScript)
+	wake.set("radius", 9.0)
+	wake.set("weight", 1.0) # Crest default (3.75 * weight / 5)
+	wake.set("foam_strength", 1.0)
+	wake.position = Vector3(0.0, -2.0, 0.0) # near the waterline
+	huge.add_child(wake)
 
 func _make_mat(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -161,7 +203,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(_delta: float) -> void:
 	if _label:
-		var ocean := CrestOceanRenderer.instance
+		var ocean = $CrestOceanRenderer
 		var cam := get_viewport().get_camera_3d()
 		var fps := Engine.get_frames_per_second()
 		var cam_info := ""
@@ -170,4 +212,4 @@ func _process(_delta: float) -> void:
 			var r := cam.global_rotation
 			cam_info = "cam=(%.1f,%.1f,%.1f) pitch=%.0f yaw=%.0f" % [p.x, p.y, p.z, rad_to_deg(r.x), rad_to_deg(r.y)]
 		var paused_tag := " | PAUSED (Space)" if get_tree().paused else ""
-		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | U: dive/surface | Space: pause | F9: debug overlay | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f | lodAlpha: %.2f%s\n%s" % [fps, int(ocean.ocean_scale) if ocean else 0, ocean.current_time() if ocean else 0.0, ocean.viewer_altitude_level_alpha if ocean else 0.0, paused_tag, cam_info]
+		_label.text = "Crest Ocean System for Godot — demo\nWASD/QE + mouse: fly | Shift: fast | U: dive/surface | Space: pause | F9: debug overlay | Esc: release mouse\nFPS: %d | scale: %d | time: %.1f | lodAlpha: %.2f%s\n%s" % [fps, int(ocean.get_ocean_scale()) if ocean else 0, ocean.get_current_time() if ocean else 0.0, ocean.get_viewer_altitude_level_alpha() if ocean else 0.0, paused_tag, cam_info]

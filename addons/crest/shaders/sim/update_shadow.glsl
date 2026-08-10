@@ -48,7 +48,9 @@ layout(push_constant, std430) uniform Params {
 	float weight_soft;
 	float jitter_diameter_hard;
 	float weight_hard;
-	vec3 light_dir; // towards the light
+	float light_dir_x; // towards the light
+	float light_dir_y;
+	float light_dir_z;
 	float time;
 	float ocean_level;
 	float use_source_transforms;
@@ -69,6 +71,7 @@ vec3 crest_hash33(uvec3 x) {
 
 // 1 = lit, 0 = fully shadowed.
 float compute_occlusion(vec3 p) {
+	vec3 light_dir = vec3(pc.light_dir_x, pc.light_dir_y, pc.light_dir_z);
 	float lit = 1.0;
 	int count = int(pc.caster_count);
 	for (int i = 0; i < count; i++) {
@@ -76,7 +79,7 @@ float compute_occlusion(vec3 p) {
 		float r = casters[i].v0.w;
 		// Ray from p towards the light vs sphere.
 		vec3 oc = p - c;
-		float b = dot(oc, pc.light_dir);
+		float b = dot(oc, light_dir);
 		float cc = dot(oc, oc) - r * r;
 		float disc = b * b - cc;
 		if (disc > 0.0) {
