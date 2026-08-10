@@ -112,12 +112,12 @@ https://github.com/wave-harmonic/crest
 
 ## Testing
 
-Run the smoke test scene and inspect the screenshot it writes:
+Run the current C# demo as a smoke test and check that it starts without
+errors:
 
 ```sh
 /Applications/Godot_mono.app/Contents/MacOS/Godot --path . \
-  --quit-after 300 _tmp_test/ocean_smoke.tscn
-# screenshot: ~/Library/Application Support/Godot/app_userdata/<project>/ocean_smoke.png
+  --quit-after 120 --audio-driver Dummy
 ```
 
 Quantitative visual QA harness (`_tmp_test/metric_check.tscn`): runs the
