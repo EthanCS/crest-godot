@@ -67,15 +67,44 @@ that architecture and its feature set for Godot.
 
 ## Quick start
 
-1. Copy `addons/crest` into your project and enable the plugin
+1. Download the versioned addon archive from the
+   [GitHub Releases](https://github.com/EthanCS/crest-godot/releases) page and
+   extract it at your project root. For v0.1.0, the resulting path must be
+   `res://addons/crest/plugin.cfg`.
+2. Commit `addons/crest` to your game's repository. This vendors the exact
+   plugin version and makes builds reproducible; the installed version is also
+   recorded in `addons/crest/plugin.cfg`.
+3. Open the project with Godot **4.6+ .NET/Mono**, let it import and compile,
+   then enable the plugin
    (*Project > Project Settings > Plugins > Crest Ocean System*).
-2. Add a `CrestOceanRenderer` node to your scene.
-3. Add a `CrestShapeGerstner` (or `CrestShapeFFT`) node anywhere in the
+4. Add a `CrestOceanRenderer` node to your scene.
+5. Add a `CrestShapeGerstner` (or `CrestShapeFFT`) node anywhere in the
    scene; assign a `CrestWaveSpectrum` resource (created automatically with
    defaults if left empty).
-4. Make sure your scene has a `Camera3D` and a `DirectionalLight3D`.
-5. Run. Tweak wave and material parameters on the spectrum resource and the
+6. Make sure your scene has a `Camera3D` and a `DirectionalLight3D`.
+7. Run. Tweak wave and material parameters on the spectrum resource and the
    auto-created ocean material (see `CrestOceanRenderer > ocean_material`).
+
+To install a pinned release from the command line, run this in the target
+Godot project's root. It downloads and verifies the checksum published beside
+the release asset:
+
+```sh
+version=v0.1.0
+curl -fL -o "crest-godot-$version.zip" \
+  "https://github.com/EthanCS/crest-godot/releases/download/$version/crest-godot-$version.zip"
+curl -fL -o "crest-godot-$version.zip.sha256" \
+  "https://github.com/EthanCS/crest-godot/releases/download/$version/crest-godot-$version.zip.sha256"
+shasum -a 256 -c "crest-godot-$version.zip.sha256"
+unzip -o "crest-godot-$version.zip"
+rm "crest-godot-$version.zip" "crest-godot-$version.zip.sha256"
+```
+
+Upgrading is the same operation with a new tag, followed by reviewing and
+committing the `addons/crest` diff. Godot has no built-in dependency resolver
+for addons, so vendoring the release asset is the supported version-pinning
+workflow for now. Do not download the moving `main` branch for production
+projects.
 
 Minimal C# code-only setup:
 

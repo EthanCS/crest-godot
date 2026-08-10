@@ -4,6 +4,7 @@
 
 # Godot import cache files (regenerated locally)
 *.import
+!addons/crest/textures/*.png.import
 
 # Imported translations (automatically generated from CSV files)
 *.translation
@@ -25,3 +26,6 @@ _tmp_test/
 
 # Export presets
 export_presets.cfg
+
+# Local release artifacts
+dist/
